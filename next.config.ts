@@ -1,23 +1,18 @@
-import path from 'node:path';
 import type { NextConfig } from 'next';
 import { buildSecurityHeaders } from './lib/security-headers';
 
 /**
- * The brain and data packages are sibling checkouts rather than files inside
- * this app, so Turbopack is told the workspace starts one level up. Without
- * it, resolution stops at this directory and every @rockygpt/* import fails.
- * The same setting is correct whether the siblings are workspace folders or
- * separate repositories.
+ * The brain and data packages arrive as ordinary dependencies, so nothing here
+ * needs to teach Next about sibling directories. An earlier arrangement had
+ * them as folders next to this app and pointed Turbopack and file tracing one
+ * level up to find them; with a tracing root outside the project, the deployed
+ * bundle omitted node_modules and every database-backed route failed at
+ * runtime on a module that resolved perfectly well during the build.
  */
-const workspaceRoot = path.resolve(process.cwd(), '..');
-
 const nextConfig: NextConfig = {
   poweredByHeader: false,
-  turbopack: { root: workspaceRoot },
-  outputFileTracingRoot: workspaceRoot,
-  // The packages ship TypeScript sources rather than a build artifact, so
-  // Next compiles them alongside the app.
-  transpilePackages: ['@rockygpt/brain', '@rockygpt/data'],
+  // The packages ship compiled JavaScript, so there is nothing to transpile.
+  serverExternalPackages: ['pg'],
   async headers() {
     return [
       {
