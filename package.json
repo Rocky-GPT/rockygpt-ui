@@ -1,0 +1,44 @@
+{
+  "name": "@rockygpt/ui",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Next.js application for RockyGPT: routes, API handlers, and React components.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "test:a11y": "playwright test e2e/accessibility.spec.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@rockygpt/brain": "github:Rocky-GPT/rockygpt-brain#main",
+    "@rockygpt/data": "github:Rocky-GPT/rockygpt-data#main",
+    "fuse.js": "^7.1.0",
+    "lucide-react": "^0.562.0",
+    "next": "^16.2.11",
+    "next-themes": "^0.4.6",
+    "pg": "^8.17.1",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-markdown": "^10.1.0",
+    "react-virtuoso": "^4.18.1",
+    "remark-gfm": "^4.0.1",
+    "server-only": "^0.0.1",
+    "web-haptics": "^0.0.6"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20.19.30",
+    "@types/pg": "^8.16.0",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "axe-core": "^4.11.1",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.11",
+    "eslint-config-prettier": "^10.1.8",
+    "playwright": "^1.58.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}

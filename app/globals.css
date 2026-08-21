@@ -1,0 +1,450 @@
+@import "tailwindcss";
+
+@theme {
+  /* Tailwind v4 ships no `xs`, so every `xs:` utility in the app silently
+     never matched — the labels they guard were invisible at every width. */
+  --breakpoint-xs: 30rem;
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace;
+  
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+}
+
+@layer base {
+  :root {
+    /* Ramapo Brand Palette */
+    --ramapo-maroon: #8E0A26;
+    --ramapo-black: #231F20;
+    --ramapo-gray: #848282;
+    --ramapo-white: #FFFFFF;
+
+    /* Dark theme by default (Gemini-style) */
+    --background: #1a1a1a;
+    --foreground: #e5e5e5;
+    
+    --primary: var(--ramapo-maroon);
+    --primary-foreground: var(--ramapo-white);
+    
+    --muted: #2a2a2a;
+    --muted-foreground: #a1a1aa;
+    
+    --border: #3a3a3a;
+    
+    /* Accent colors for suggestions */
+    --accent-purple: #7c3aed;
+    --accent-green: #10b981;
+  }
+
+  .light {
+    --background: var(--ramapo-white);
+    --foreground: var(--ramapo-black);
+    --muted: #f4f4f5;
+    --muted-foreground: var(--ramapo-gray);
+    --border: #e4e4e7;
+  }
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  opacity: 1;
+}
+
+@keyframes rocky-answer-caret-blink {
+  0%,
+  45% {
+    opacity: 1;
+  }
+
+  46%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.rocky-answer-typing > :last-child::after {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 0.2rem;
+  vertical-align: -0.12em;
+  background: #f4a8b5;
+  content: '';
+  animation: rocky-answer-caret-blink 800ms steps(1, end) infinite;
+}
+
+/* A single, high-contrast fallback keeps keyboard focus visible on every
+   interactive control, including controls inside long, scrollable dialogs. */
+:where(a, button, input:not(#chat-input), select, textarea, summary, [tabindex]):focus-visible {
+  outline: 3px solid #f4a8b5;
+  outline-offset: 3px;
+}
+
+@media (forced-colors: active) {
+  :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: 3px solid Highlight;
+    outline-offset: 3px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Keep maroon for surfaces/buttons, but use readable white for primary text on dark UI. */
+@layer utilities {
+  .text-primary {
+    color: var(--foreground) !important;
+  }
+
+  .hover\:text-primary:hover {
+    color: var(--foreground) !important;
+  }
+
+  .group:hover .group-hover\:text-primary {
+    color: var(--foreground) !important;
+  }
+}
+
+
+
+/* Make dots very subtle */
+/* Dots removed */
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+/* Hide scrollbar for IE, Edge and Firefox */
+.scrollbar-none {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+/* Snappy spring pop entrance from bottom to top */
+@keyframes actionCardPop {
+  0% {
+    opacity: 0;
+    transform: translateY(48px) scale(0.9);
+  }
+  70% {
+    opacity: 1;
+    transform: translateY(-3px) scale(1.015);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* The exit is the entrance played backwards: the pop's keyframes mirrored in
+   time (its 70% overshoot lands at 30% here) with the reversed easing curve,
+   cubic-bezier(1-x2, 1-y2, 1-x1, 1-y1) of the entrance. It needs its own name
+   rather than animation-direction: reverse, because reusing actionCardPop
+   would not restart the already-finished entrance animation. */
+@keyframes actionCardDismiss {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-3px) scale(1.015);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(48px) scale(0.9);
+  }
+}
+
+.animate-action-card {
+  animation: actionCardPop 420ms cubic-bezier(0.2, 1.25, 0.35, 1) both;
+  will-change: transform, opacity;
+}
+
+.animate-action-card-exit {
+  /* No !important on the shorthand: it would reset the per-card
+     animation-delay that carries the stagger in from the inline style. */
+  animation: actionCardDismiss 420ms cubic-bezier(0.65, 0, 0.8, -0.25) both;
+  transition: none !important;
+  will-change: transform, opacity;
+}
+
+@keyframes progressShimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.animate-progress-shimmer {
+  background-size: 200% 100%;
+  animation: progressShimmer 2.2s linear infinite;
+}
+
+/* Onboarding Modal Magical Entrance */
+@keyframes modalBackdropFade {
+  0% {
+    opacity: 0;
+    backdrop-filter: blur(0px);
+  }
+  100% {
+    opacity: 1;
+    backdrop-filter: blur(16px);
+  }
+}
+
+@keyframes onboardingMagicalPop {
+  0% {
+    opacity: 0;
+    transform: scale(0.88) translateY(36px);
+    box-shadow: 0 0 0 0 rgba(142, 10, 38, 0);
+  }
+  70% {
+    opacity: 1;
+    transform: scale(1.02) translateY(-4px);
+    box-shadow: 0 0 55px 12px rgba(244, 168, 181, 0.3), 0 25px 50px -12px rgba(0, 0, 0, 0.9);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+    box-shadow: 0 0 30px 4px rgba(142, 10, 38, 0.2), 0 25px 50px -12px rgba(0, 0, 0, 0.95);
+  }
+}
+
+@keyframes magicalSparkleTwinkle {
+  0% {
+    opacity: 0;
+    transform: scale(0.4) rotate(-35deg);
+    filter: drop-shadow(0 0 0 rgba(244, 168, 181, 0));
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.35) rotate(15deg);
+    filter: drop-shadow(0 0 12px #f4a8b5);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+    filter: drop-shadow(0 0 4px rgba(244, 168, 181, 0.4));
+  }
+}
+
+@keyframes magicalTilePop {
+  0% {
+    opacity: 0;
+    transform: translateY(22px) scale(0.92);
+  }
+  70% {
+    opacity: 1;
+    transform: translateY(-2px) scale(1.015);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes magicalBacklightPulse {
+  0% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  60% {
+    opacity: 0.9;
+    transform: scale(1.1);
+  }
+  100% {
+    opacity: 0.6;
+    transform: scale(1);
+  }
+}
+
+.animate-modal-backdrop {
+  animation: modalBackdropFade 400ms ease-out both;
+  will-change: opacity, backdrop-filter;
+}
+
+.animate-onboarding-magical {
+  animation: onboardingMagicalPop 620ms cubic-bezier(0.16, 1.15, 0.3, 1) both;
+  will-change: transform, opacity, box-shadow;
+}
+
+.animate-sparkle-magical {
+  animation: magicalSparkleTwinkle 700ms cubic-bezier(0.34, 1.56, 0.64, 1) 200ms both;
+  will-change: transform, opacity, filter;
+}
+
+.animate-magical-item {
+  animation: magicalTilePop 560ms cubic-bezier(0.16, 1.15, 0.3, 1) both;
+  will-change: transform, opacity;
+}
+
+.animate-magical-backlight {
+  animation: magicalBacklightPulse 800ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  will-change: transform, opacity;
+}
+
+/* Home Page Staggered Magical Entrance */
+@keyframes heroHeaderReveal {
+  0% {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes heroGreetingPop {
+  0% {
+    opacity: 0;
+    transform: translateY(36px) scale(0.94);
+  }
+  70% {
+    opacity: 1;
+    transform: translateY(-3px) scale(1.015);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes heroPromptPop {
+  0% {
+    opacity: 0;
+    transform: translateY(28px) scale(0.92);
+  }
+  70% {
+    opacity: 1;
+    transform: translateY(-2px) scale(1.02);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes heroTilePop {
+  0% {
+    opacity: 0;
+    transform: translateY(32px) scale(0.88);
+  }
+  70% {
+    opacity: 1;
+    transform: translateY(-3px) scale(1.03);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes heroInputGlide {
+  0% {
+    opacity: 0;
+    transform: translateY(48px) scale(0.96);
+  }
+  70% {
+    opacity: 1;
+    transform: translateY(-3px) scale(1.01);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-hero-header {
+  animation: heroHeaderReveal 550ms cubic-bezier(0.16, 1.15, 0.3, 1) 50ms both;
+  will-change: transform, opacity;
+}
+
+.animate-hero-greeting {
+  animation: heroGreetingPop 650ms cubic-bezier(0.16, 1.15, 0.3, 1) 100ms both;
+  will-change: transform, opacity;
+}
+
+.animate-hero-prompt {
+  animation: heroPromptPop 580ms cubic-bezier(0.16, 1.15, 0.3, 1) both;
+  will-change: transform, opacity;
+}
+
+.animate-hero-pill {
+  animation: heroTilePop 520ms cubic-bezier(0.16, 1.15, 0.3, 1) both;
+  will-change: transform, opacity;
+}
+
+.animate-hero-input {
+  animation: heroInputGlide 650ms cubic-bezier(0.16, 1.15, 0.3, 1) 150ms both;
+  will-change: transform, opacity;
+}
+
+/* Gemini / Apple Intelligence Thinking Shimmer */
+@keyframes textShimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.animate-thinking-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.4) 0%,
+    rgba(244, 168, 181, 0.95) 45%,
+    rgba(255, 255, 255, 1) 50%,
+    rgba(244, 168, 181, 0.95) 55%,
+    rgba(255, 255, 255, 0.4) 100%
+  );
+  background-size: 200% auto;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: textShimmer 2.2s linear infinite;
+}
+
+@keyframes thinkingCelestialSpin {
+  0% {
+    transform: rotate(0deg) scale(0.92);
+    filter: drop-shadow(0 0 2px rgba(244, 168, 181, 0.4));
+    opacity: 0.85;
+  }
+  50% {
+    transform: rotate(180deg) scale(1.15);
+    filter: drop-shadow(0 0 10px rgba(244, 168, 181, 0.95)) drop-shadow(0 0 18px rgba(142, 10, 38, 0.7));
+    opacity: 1;
+  }
+  100% {
+    transform: rotate(360deg) scale(0.92);
+    filter: drop-shadow(0 0 2px rgba(244, 168, 181, 0.4));
+    opacity: 0.85;
+  }
+}
+
+.animate-thinking-star {
+  animation: thinkingCelestialSpin 3.5s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+  will-change: transform, filter, opacity;
+}
