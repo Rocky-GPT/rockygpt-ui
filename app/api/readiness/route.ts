@@ -1,41 +1,22 @@
-import { getRepositoryV2 } from '@rockygpt/data/data-v2/repositories/index';
+import { brainUrl } from '@/lib/brain-api';
+import { DATA_URL } from '@/lib/services';
 
 export const dynamic = 'force-dynamic';
 
-/**
- * Readiness probe (PROB-016): can this instance actually serve chat? It
- * checks the required dependencies — repository/database with an active
- * dataset, and the rate limiter — within a bounded budget. Liveness stays on
- * /api/health. Responses expose failure categories only, never connection or
- * error details.
- */
-
-const PROBE_TIMEOUT_MS = 3_000;
-
-function bounded<T>(work: Promise<T>): Promise<T> {
-  return Promise.race([
-    work,
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('probe timeout')), PROBE_TIMEOUT_MS)
-    ),
-  ]);
-}
-
 export async function GET() {
+  const checks = await Promise.allSettled([
+    fetch(`${brainUrl()}/health`, { signal: AbortSignal.timeout(3_000), cache: 'no-store' }),
+    fetch(`${DATA_URL}/readiness`, { signal: AbortSignal.timeout(3_000), cache: 'no-store' }),
+  ]);
   const failing: string[] = [];
-
-  try {
-    await bounded(getRepositoryV2().getDatasetContext());
-  } catch (error) {
-    const message = error instanceof Error ? error.message : '';
-    failing.push(/no active dataset/i.test(message) ? 'dataset' : 'database');
-  }
-
-  if (failing.length) {
-    return Response.json(
-      { status: 'unready', failing, timestamp: new Date().toISOString() },
-      { status: 503 }
-    );
-  }
-  return Response.json({ status: 'ready', timestamp: new Date().toISOString() });
+  if (checks[0].status === 'rejected' || !checks[0].value.ok) failing.push('brain');
+  if (checks[1].status === 'rejected' || !checks[1].value.ok) failing.push('data');
+  return Response.json(
+    {
+      status: failing.length ? 'unready' : 'ready',
+      ...(failing.length ? { failing } : {}),
+      timestamp: new Date().toISOString(),
+    },
+    { status: failing.length ? 503 : 200 }
+  );
 }

@@ -15,13 +15,13 @@ import { createPortal } from 'react-dom';
 import { X, Loader2, Bus, Clock, Phone, Shield, MapPin, ExternalLink, AlertTriangle, Calendar, Users, Mail, Instagram, MessageCircle, Utensils, ChevronDown, Facebook, Twitter, Linkedin, Globe, GraduationCap, BookOpen, ChevronRight, Monitor, Database, Activity, FlaskConical, Leaf, Calculator, HeartPulse, Briefcase, Landmark, Palette, Music, Camera, PenTool, Scale, Microscope } from 'lucide-react';
 import Fuse from 'fuse.js';
 import { Virtuoso } from 'react-virtuoso';
-import { parseSemesterEventDate } from '@rockygpt/data/calendar-dates';
+import { parseSemesterEventDate } from '@/lib/calendar-dates';
 import { MODAL_PANEL, MODAL_PANEL_SHORT } from '@/components/modalShell';
 import type {
   DirectoryApiResponse,
   FacultyStaffContact,
   NormalizedDirectoryContact,
-} from '@rockygpt/data/directory/types';
+} from '@/lib/data-types';
 
 interface ModalProps {
   isOpen: boolean;

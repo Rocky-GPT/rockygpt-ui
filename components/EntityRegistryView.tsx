@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
-import type { EntityKind, EntityRegistry, EntityRow, RegistryEntity } from '@rockygpt/data/data-v2/entity-registry';
+import type { EntityKind, EntityRegistry, EntityRow, RegistryEntity } from '@/lib/data-types';
 
 const KIND_LABELS: Record<EntityKind, string> = {
   campus_hours: 'Buildings',

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ChevronRight, ExternalLink, X } from 'lucide-react';
-import type { FreshnessStatus, ScrapeSourceStatus, TimestampBasis } from '@rockygpt/data/data-v2/scrape-status';
+import type { FreshnessStatus, ScrapeSourceStatus, TimestampBasis } from '@/lib/data-types';
 import { useAccessibleDialog } from '@/components/useAccessibleDialog';
 
 const EASTERN_DATE_TIME = new Intl.DateTimeFormat('en-US', {

@@ -6,14 +6,13 @@
  * everything it shows arrives over HTTP from the data service, and every
  * answer from the brain. A native client would use the same two addresses.
  *
- * `NEXT_PUBLIC_` because the browser reads these too: requests go straight to
- * the service rather than through this app, so there is no hop to pay for and
- * no privileged path a second client would not have.
+ * These addresses stay server-side. Browser calls use the UI's compatibility
+ * routes; native clients can call the same public data API directly.
  */
 
 /** The campus data service. */
 export const DATA_URL = (
-  process.env.NEXT_PUBLIC_DATA_URL || 'http://127.0.0.1:8100'
+  process.env.DATA_URL || 'http://127.0.0.1:8100'
 ).replace(/\/+$/, '');
 
 /** The answering engine. Read on the server only; the chat route proxies it. */

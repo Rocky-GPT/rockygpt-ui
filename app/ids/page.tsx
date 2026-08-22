@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { DevPageMenu } from '@/components/DevPageMenu';
 import { EntityRegistryView } from '@/components/EntityRegistryView';
-import { buildEntityRegistry } from '@rockygpt/data/data-v2/entity-registry';
-import { getRuntimePool } from '@rockygpt/data/db/runtime-pool';
+import { DATA_URL } from '@/lib/services';
+import type { EntityRegistry } from '@/lib/data-types';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,23 +15,15 @@ export const metadata: Metadata = {
 export default async function IdsPage() {
   if (process.env.NODE_ENV !== 'development') notFound();
 
-  const pool = getRuntimePool();
-  let registry;
+  let registry: EntityRegistry | undefined;
   let loadError: string | undefined;
 
-  if (!pool) {
-    loadError = 'DATABASE_URL is not configured, so there is no active dataset to read.';
-  } else {
-    try {
-      const active = await pool.query<{ id: string; version: string }>(
-        `SELECT id::text, version FROM rockygpt_v2.dataset_versions WHERE status = 'active' LIMIT 1`
-      );
-      const dataset = active.rows[0];
-      if (!dataset) loadError = 'No active dataset version.';
-      else registry = await buildEntityRegistry(pool, dataset.id, dataset.version);
-    } catch (error) {
-      loadError = error instanceof Error ? error.message : 'An unexpected database error occurred.';
-    }
+  try {
+    const response = await fetch(`${DATA_URL}/v1/dev/entity-registry`, { cache: 'no-store' });
+    if (!response.ok) throw new Error(`Data service answered ${response.status}.`);
+    registry = (await response.json()) as EntityRegistry;
+  } catch (error) {
+    loadError = error instanceof Error ? error.message : 'An unexpected data-service error occurred.';
   }
 
   return (

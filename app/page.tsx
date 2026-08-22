@@ -59,7 +59,7 @@ import {
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { bindGlobalTapHaptics, destroyHaptics, triggerHaptic } from '@/lib/haptics';
-import type { ChatTurnV2 } from '@rockygpt/brain/api/contract';
+import type { ChatTurnV2 } from '@/lib/brain-api';
 import { rockyModeCommandForMessage } from '../chat/rocky-mode';
 import { DevPageMenu } from '@/components/DevPageMenu';
 

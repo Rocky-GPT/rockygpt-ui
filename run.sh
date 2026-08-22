@@ -20,10 +20,9 @@ fi
 # Check if .env file exists
 if [ ! -f ".env" ]; then
     echo "Warning: .env file not found."
-    echo "Please make sure you create a .env file with appropriate keys (e.g., DATABASE_URL) for the application to function correctly."
+    echo "Please make sure you create a .env file with BRAIN_URL, DATA_URL, and ADMIN_API_TOKEN."
 fi
 
 # Run the development server
 echo "Starting Next.js development server..."
 npm run dev
-

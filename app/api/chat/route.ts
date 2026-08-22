@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server';
-import { detectQuestionOrigin } from '@rockygpt/brain/src/detect-origin';
-import { ask, BrainUnreachableError } from '@rockygpt/brain/api/client';
 import {
+  askBrain,
+  BrainUnreachableError,
+  detectQuestionOrigin,
   MAX_HISTORY_TURNS,
   MAX_MESSAGE_LENGTH,
   type ChatTurnV2,
-} from '@rockygpt/brain/api/contract';
+} from '@/lib/brain-api';
 
 export const runtime = 'nodejs';
 
@@ -88,7 +89,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   };
 
   try {
-    const result = await ask({
+    const result = await askBrain({
       message,
       history: readHistory(payload.history),
       styleMode: optionalText(payload.styleMode),
