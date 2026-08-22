@@ -55,6 +55,8 @@ export async function askBrain(
 ): Promise<Response> {
   try {
     const headers = new Headers({ accept: 'application/json', 'content-type': 'application/json' });
+    const environmentToken = process.env.STAGING_SERVICE_TOKEN?.trim();
+    if (environmentToken) headers.set('x-rockygpt-environment-token', environmentToken);
     if (clientIdentity?.signature) {
       headers.set('x-rockygpt-client-key', clientIdentity.key);
       headers.set('x-rockygpt-client-signature', clientIdentity.signature);

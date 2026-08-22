@@ -63,6 +63,7 @@ const server = createServer((request, response) => {
         key: request.headers['x-rockygpt-client-key'] ?? null,
         signature: request.headers['x-rockygpt-client-signature'] ?? null,
         forwardedAddress: request.headers['x-forwarded-for'] ?? null,
+        environmentToken: request.headers['x-rockygpt-environment-token'] ?? null,
       },
     });
   });

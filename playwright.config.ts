@@ -15,6 +15,7 @@ const localWebServers = [
       NEXT_TELEMETRY_DISABLED: '1',
       BRAIN_URL: `http://127.0.0.1:${mockBrainPort}`,
       ABUSE_HASH_KEY: 'playwright-only-abuse-hash-key-00000001',
+      STAGING_SERVICE_TOKEN: 'playwright-server-only-staging-token',
     },
   },
   {
@@ -27,6 +28,7 @@ const localWebServers = [
       NEXT_TELEMETRY_DISABLED: '1',
       BRAIN_URL: `http://127.0.0.1:${mockBrainPort}`,
       ABUSE_HASH_KEY: 'playwright-only-abuse-hash-key-00000001',
+      STAGING_SERVICE_TOKEN: 'playwright-server-only-staging-token',
     },
   },
 ];

@@ -26,6 +26,8 @@ async function proxy(request: Request, url: string, admin = false): Promise<Resp
   const ifNoneMatch = request.headers.get('if-none-match');
   if (contentType) headers.set('content-type', contentType);
   if (ifNoneMatch) headers.set('if-none-match', ifNoneMatch);
+  const environmentToken = process.env.STAGING_SERVICE_TOKEN?.trim();
+  if (environmentToken) headers.set('x-rockygpt-environment-token', environmentToken);
   if (admin) {
     const token = process.env.ADMIN_API_TOKEN?.trim();
     if (!token) return Response.json({ error: 'Admin service is not configured.' }, { status: 503 });
