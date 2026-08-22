@@ -68,12 +68,20 @@ test('chat sends only a signed pseudonymous client key to the brain', async ({
   const address = sourceAddress(testInfo.project.name, 50);
   const response = await request.post('/api/chat', {
     data: { message: 'Hello' },
-    headers: { 'x-forwarded-for': address },
+    headers: {
+      'x-forwarded-for': address,
+      'x-rockygpt-environment-token': 'browser-forged-token',
+    },
   });
 
   expect(response.status()).toBe(200);
   const body = (await response.json()) as {
-    abuseIdentity: { key: string; signature: string; forwardedAddress: string | null };
+    abuseIdentity: {
+      key: string;
+      signature: string;
+      forwardedAddress: string | null;
+      environmentToken: string | null;
+    };
   };
   const expectedKey = createHmac('sha256', ABUSE_HASH_KEY).update(address).digest('hex');
   const expectedSignature = createHmac('sha256', ABUSE_HASH_KEY)
@@ -83,6 +91,7 @@ test('chat sends only a signed pseudonymous client key to the brain', async ({
     key: expectedKey,
     signature: expectedSignature,
     forwardedAddress: null,
+    environmentToken: 'playwright-server-only-staging-token',
   });
 });
 
