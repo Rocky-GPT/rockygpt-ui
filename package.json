@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "description": "Next.js application for RockyGPT: routes, API handlers, and React components.",
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
