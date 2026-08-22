@@ -1,7 +1,6 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { LogsDashboard } from '@/components/LogsDashboard';
-import { DevPageMenu } from '@/components/DevPageMenu';
 
 export const dynamic = 'force-dynamic';
 

@@ -12,6 +12,7 @@
     "start": "next start",
     "lint": "eslint",
     "test:a11y": "playwright test e2e/accessibility.spec.ts",
+    "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

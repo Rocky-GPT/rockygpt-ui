@@ -28,4 +28,8 @@ next-env.d.ts
 
 # Published by the data pipeline (ROCKY_PUBLIC_DIR), not authored here.
 /public/data/
+
+# Transcript exports belong only on the user's device. Never archive them in
+# the application checkout or commit them to Git.
+/transcripts/
 .vercel

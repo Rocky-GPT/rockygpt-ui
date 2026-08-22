@@ -5,121 +5,312 @@ import {
   detectQuestionOrigin,
   MAX_HISTORY_TURNS,
   MAX_MESSAGE_LENGTH,
+  type ChatRequest,
   type ChatTurnV2,
 } from '@/lib/brain-api';
+import {
+  checkChatRateLimit,
+  rateLimitHeaders,
+  type AllowedRateLimit,
+} from '@/lib/chat-rate-limit';
 
 export const runtime = 'nodejs';
 
-/**
- * The browser's edge of the chat.
- *
- * Answering happens in the brain service; what stays here is everything that
- * is only true of a browser request — the visitor cookie this app issues, and
- * where the question came from, which needs the original headers. The turn
- * itself, and the record of it, belong to the service.
- */
+const MAX_CHAT_BODY_BYTES = 64 * 1_024;
+const MAX_IDENTIFIER_LENGTH = 128;
+const MAX_OPTION_LENGTH = 32;
+const MAX_TIMEZONE_LENGTH = 100;
+const VISITOR_COOKIE = 'rockygpt_visitor_id';
+const VISITOR_COOKIE_AGE_SECONDS = 60 * 60 * 24 * 30;
+const IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
+const OPTION_PATTERN = /^[A-Za-z0-9_-]+$/;
+const TIMEZONE_PATTERN = /^[A-Za-z0-9_+./:-]+$/;
 
-/** Reads the conversation so far, ignoring anything malformed. */
+class RequestValidationError extends Error {
+  constructor(
+    message: string,
+    readonly status = 400,
+    readonly code = 'INVALID_REQUEST'
+  ) {
+    super(message);
+    this.name = 'RequestValidationError';
+  }
+}
+
+interface ParsedChatRequest {
+  brainRequest: ChatRequest;
+  sourcePayload: Record<string, unknown>;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function boundedOptionalText(
+  payload: Record<string, unknown>,
+  key: string,
+  maxLength: number,
+  pattern?: RegExp
+): string | undefined {
+  const value = payload[key];
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string') {
+    throw new RequestValidationError(`${key} must be a string`);
+  }
+
+  const normalized = value.trim();
+  if (!normalized) return undefined;
+  if (normalized.length > maxLength || (pattern && !pattern.test(normalized))) {
+    throw new RequestValidationError(`${key} is invalid`);
+  }
+  return normalized;
+}
+
 function readHistory(value: unknown): ChatTurnV2[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .filter(
-      (turn): turn is ChatTurnV2 =>
-        !!turn &&
-        typeof turn === 'object' &&
-        ((turn as ChatTurnV2).role === 'user' || (turn as ChatTurnV2).role === 'assistant') &&
-        typeof (turn as ChatTurnV2).content === 'string'
-    )
-    .slice(-MAX_HISTORY_TURNS)
-    .map((turn) => ({ role: turn.role, content: turn.content.slice(0, MAX_MESSAGE_LENGTH) }));
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    throw new RequestValidationError('history must be an array');
+  }
+  if (value.length > MAX_HISTORY_TURNS) {
+    throw new RequestValidationError(`history may contain at most ${MAX_HISTORY_TURNS} turns`);
+  }
+
+  return value.map((turn, index) => {
+    if (!isRecord(turn) || (turn.role !== 'user' && turn.role !== 'assistant')) {
+      throw new RequestValidationError(`history[${index}] has an invalid role`);
+    }
+    if (typeof turn.content !== 'string' || !turn.content.trim()) {
+      throw new RequestValidationError(`history[${index}].content is required`);
+    }
+    if (turn.content.length > MAX_MESSAGE_LENGTH) {
+      throw new RequestValidationError(
+        `history[${index}].content may contain at most ${MAX_MESSAGE_LENGTH} characters`
+      );
+    }
+    return { role: turn.role, content: turn.content.trim() };
+  });
 }
 
-function optionalText(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+async function readBoundedBody(request: Request): Promise<string> {
+  const declaredLength = Number(request.headers.get('content-length'));
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_CHAT_BODY_BYTES) {
+    throw new RequestValidationError('request body is too large', 413, 'PAYLOAD_TOO_LARGE');
+  }
+
+  if (!request.body) return '';
+  const reader = request.body.getReader();
+  const decoder = new TextDecoder();
+  let bytes = 0;
+  let body = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    bytes += value.byteLength;
+    if (bytes > MAX_CHAT_BODY_BYTES) {
+      await reader.cancel();
+      throw new RequestValidationError('request body is too large', 413, 'PAYLOAD_TOO_LARGE');
+    }
+    body += decoder.decode(value, { stream: true });
+  }
+  return body + decoder.decode();
 }
 
-export async function POST(request: Request): Promise<NextResponse> {
+async function parseChatRequest(request: Request): Promise<ParsedChatRequest> {
+  const rawBody = await readBoundedBody(request);
+
   let body: unknown;
   try {
-    body = await request.json();
+    body = JSON.parse(rawBody);
   } catch {
-    return NextResponse.json({ error: 'invalid JSON body' }, { status: 400 });
+    throw new RequestValidationError('invalid JSON body');
+  }
+  if (!isRecord(body)) {
+    throw new RequestValidationError('request body must be a JSON object');
   }
 
-  const payload = (body ?? {}) as Record<string, unknown>;
-  const message = typeof payload.message === 'string' ? payload.message.trim() : '';
-  if (!message) {
-    return NextResponse.json({ error: 'message is required' }, { status: 400 });
+  if (typeof body.message !== 'string' || !body.message.trim()) {
+    throw new RequestValidationError('message is required');
+  }
+  if (body.message.length > MAX_MESSAGE_LENGTH) {
+    throw new RequestValidationError(
+      `message may contain at most ${MAX_MESSAGE_LENGTH} characters`,
+      413,
+      'MESSAGE_TOO_LONG'
+    );
   }
 
-  const questionOrigin = detectQuestionOrigin(request, payload);
-
-  // The browser sends `conversationId` — a UUID held in sessionStorage and
-  // reused for every turn of a conversation. `sessionId` is still accepted for
-  // any client that sends it instead.
   const conversationId =
-    optionalText(payload.conversationId) ??
-    optionalText(payload.sessionId) ??
+    boundedOptionalText(body, 'conversationId', MAX_IDENTIFIER_LENGTH, IDENTIFIER_PATTERN) ??
+    boundedOptionalText(body, 'sessionId', MAX_IDENTIFIER_LENGTH, IDENTIFIER_PATTERN) ??
     `session_${crypto.randomUUID().slice(0, 12)}`;
 
-  // Extract or assign device visitor cookie token
-  const cookieHeader = request.headers.get('cookie') || '';
-  const cookieVisitorMatch = cookieHeader.match(/rockygpt_visitor_id=([^;]+)/);
-  const visitorId =
-    optionalText(payload.visitorId) ??
-    (cookieVisitorMatch
-      ? decodeURIComponent(cookieVisitorMatch[1].trim())
-      : `visitor_${conversationId.replace(/^session_/, '')}`);
+  // Accepted only for compatibility with older clients. The server owns the
+  // visitor cookie and never lets a body value replace it.
+  boundedOptionalText(body, 'visitorId', MAX_IDENTIFIER_LENGTH, IDENTIFIER_PATTERN);
+  boundedOptionalText(body, 'locale', 35, /^[A-Za-z0-9_-]+$/);
+  boundedOptionalText(body, 'origin', 16, OPTION_PATTERN);
 
-  // Retained evidence is scoped by the cookie this route issued, not by the
-  // visitor id in the request body. Both identifiers are client-supplied, but
-  // the cookie is the one this app hands out and the browser returns, so it is
-  // the better of the two to key another visitor's evidence away from.
-  const stateVisitorId = cookieVisitorMatch
-    ? decodeURIComponent(cookieVisitorMatch[1].trim())
-    : visitorId;
-
-  const withVisitorCookie = (response: NextResponse) => {
-    response.cookies.set('rockygpt_visitor_id', visitorId, {
-      path: '/',
-      maxAge: 60 * 60 * 24 * 365, // 1 year
-      sameSite: 'lax',
-    });
-    return response;
+  return {
+    sourcePayload: body,
+    brainRequest: {
+      message: body.message.trim(),
+      history: readHistory(body.history),
+      styleMode: boundedOptionalText(body, 'styleMode', MAX_OPTION_LENGTH, OPTION_PATTERN),
+      responseMode: boundedOptionalText(body, 'responseMode', MAX_OPTION_LENGTH, OPTION_PATTERN),
+      timezone: boundedOptionalText(
+        body,
+        'timezone',
+        MAX_TIMEZONE_LENGTH,
+        TIMEZONE_PATTERN
+      ),
+      conversationId,
+    },
   };
+}
+
+function validVisitorId(value: string): boolean {
+  return value.length <= MAX_IDENTIFIER_LENGTH && IDENTIFIER_PATTERN.test(value);
+}
+
+/** Returns undefined for malformed percent escapes or invalid cookie values. */
+function readVisitorCookie(request: Request): string | undefined {
+  const cookieHeader = request.headers.get('cookie');
+  if (!cookieHeader) return undefined;
+
+  for (const part of cookieHeader.split(';')) {
+    const separator = part.indexOf('=');
+    if (separator < 0 || part.slice(0, separator).trim() !== VISITOR_COOKIE) continue;
+    try {
+      const decoded = decodeURIComponent(part.slice(separator + 1).trim());
+      return validVisitorId(decoded) ? decoded : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+function withVisitorCookie(response: NextResponse, visitorId: string): NextResponse {
+  response.cookies.set(VISITOR_COOKIE, visitorId, {
+    path: '/',
+    maxAge: VISITOR_COOKIE_AGE_SECONDS,
+    sameSite: 'lax',
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+  });
+  return response;
+}
+
+function errorResponse(
+  requestId: string,
+  status: number,
+  code: string,
+  message: string,
+  retryable: boolean,
+  headers?: HeadersInit,
+  retryAfterSeconds?: number
+): NextResponse {
+  return NextResponse.json(
+    {
+      requestId,
+      error: {
+        code,
+        message,
+        retryable,
+        ...(retryAfterSeconds ? { retryAfterSeconds } : {}),
+      },
+    },
+    { status, headers }
+  );
+}
+
+function forwardedHeaders(upstream: Response, rateLimit: AllowedRateLimit): Headers {
+  const headers = new Headers(rateLimitHeaders(rateLimit));
+  for (const name of ['content-type', 'retry-after', 'x-request-id']) {
+    const value = upstream.headers.get(name);
+    if (value) headers.set(name, value);
+  }
+  return headers;
+}
+
+/**
+ * The browser edge validates and bounds client input, adds a server-owned
+ * pseudonymous visitor token, and otherwise passes the brain response through
+ * unchanged. Answering and durable logging remain brain responsibilities.
+ */
+export async function POST(request: Request): Promise<NextResponse> {
+  const requestId = crypto.randomUUID();
+  const rateLimit = checkChatRateLimit(request);
+  if (!rateLimit.allowed) {
+    return errorResponse(
+      requestId,
+      429,
+      'RATE_LIMITED',
+      'Too many chat requests. Please wait before trying again.',
+      true,
+      rateLimitHeaders(rateLimit),
+      rateLimit.retryAfterSeconds
+    );
+  }
+
+  let parsed: ParsedChatRequest;
+  try {
+    parsed = await parseChatRequest(request);
+  } catch (error) {
+    if (error instanceof RequestValidationError) {
+      return errorResponse(
+        requestId,
+        error.status,
+        error.code,
+        error.message,
+        false,
+        rateLimitHeaders(rateLimit)
+      );
+    }
+    return errorResponse(
+      requestId,
+      400,
+      'INVALID_REQUEST',
+      'Unable to read request body.',
+      false,
+      rateLimitHeaders(rateLimit)
+    );
+  }
+
+  const visitorId =
+    readVisitorCookie(request) ?? `visitor_${crypto.randomUUID().replaceAll('-', '').slice(0, 24)}`;
 
   try {
-    const result = await askBrain({
-      message,
-      history: readHistory(payload.history),
-      styleMode: optionalText(payload.styleMode),
-      responseMode: optionalText(payload.responseMode),
-      timezone: optionalText(payload.timezone),
-      conversationId,
-      visitorId: stateVisitorId,
-      questionOrigin,
+    const upstream = await askBrain(
+      {
+        ...parsed.brainRequest,
+        visitorId,
+        questionOrigin: detectQuestionOrigin(request, parsed.sourcePayload),
+      },
+      rateLimit.clientIdentity
+    );
+    const hasBody = upstream.status !== 204 && upstream.status !== 304;
+    const response = new NextResponse(hasBody ? await upstream.arrayBuffer() : null, {
+      status: upstream.status,
+      headers: forwardedHeaders(upstream, rateLimit),
     });
-    // A refusal is the service's own body and carries its own requestId, so it
-    // is passed through rather than rewritten.
-    const status = 'error' in result ? 503 : 200;
-    return withVisitorCookie(NextResponse.json(result, { status }));
+    return withVisitorCookie(response, visitorId);
   } catch (error) {
-    // Fail closed: an unreachable brain is reported as unavailable rather than
-    // answered from anything this process happens to know about campus.
     console.error('Chat turn failed:', error);
-    const unreachable = error instanceof BrainUnreachableError;
+    const message =
+      error instanceof BrainUnreachableError
+        ? 'RockyGPT is starting up.'
+        : 'RockyGPT is unavailable.';
     return withVisitorCookie(
-      NextResponse.json(
-        {
-          requestId: crypto.randomUUID(),
-          error: {
-            code: 'SERVICE_UNAVAILABLE',
-            message: unreachable ? 'RockyGPT is starting up.' : 'RockyGPT is unavailable.',
-            retryable: true,
-          },
-        },
-        { status: 503 }
-      )
+      errorResponse(
+        requestId,
+        503,
+        'SERVICE_UNAVAILABLE',
+        message,
+        true,
+        rateLimitHeaders(rateLimit)
+      ),
+      visitorId
     );
   }
 }

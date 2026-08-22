@@ -172,6 +172,10 @@ test('the queue ignores blank lines and # comments', async ({ page }) => {
 });
 
 test('double-clicking export downloads the transcript as JSON', async ({ page }) => {
+  const archiveRequests: string[] = [];
+  page.on('request', (request) => {
+    if (request.url().includes('/api/transcripts')) archiveRequests.push(request.url());
+  });
   await page.route('**/api/chat', async (route: Route) => {
     const { message } = route.request().postDataJSON() as { message: string };
     await fulfillChat(route, message);
@@ -189,11 +193,11 @@ test('double-clicking export downloads the transcript as JSON', async ({ page })
   await exportButton.dblclick();
 
   const download = await downloadPromise;
-  // name__date__time with AM/PM__conversation, the same name the server files
-  // its copy under.
+  // name__date__time with AM/PM__conversation.
   expect(download.suggestedFilename()).toMatch(
     /^rockygpt-transcript__\d{4}-\d{2}-\d{2}__\d{2}-\d{2}-\d{2}(AM|PM)(__[A-Za-z0-9]+)?\.json$/
   );
+  expect(archiveRequests).toEqual([]);
 });
 
 test('the runner control labels are visible on a desktop viewport', async ({ page }, testInfo) => {

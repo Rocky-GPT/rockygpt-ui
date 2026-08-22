@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { ArrowLeft, Database, LockKeyhole, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, Database, Download, LockKeyhole, ShieldCheck } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,6 +24,11 @@ const facts = [
     icon: LockKeyhole,
     title: 'Operational metrics and feedback',
     body: 'RockyGPT keeps operational metadata—such as route, timing, dataset version, and failure categories—and submitted ratings or redacted feedback comments for up to 90 days. Operational metrics do not contain the question or answer text.',
+  },
+  {
+    icon: Download,
+    title: 'Transcript exports',
+    body: 'Copying or downloading a transcript is a browser-local action. The exported JSON goes only to your clipboard or device; RockyGPT does not upload or retain a separate server-side copy of the export.',
   },
 ];
 
@@ -61,8 +66,8 @@ export default function PrivacyPage() {
             Transcript logging is enabled
           </h2>
           <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            Every valid submitted question is logged. The 30-day redaction and retention controls
-            below apply.
+            Every valid submitted question is logged by the brain service. The 30-day redaction
+            and retention controls below apply. Browser transcript exports are not uploaded.
           </p>
         </section>
 
@@ -96,11 +101,16 @@ export default function PrivacyPage() {
           </h2>
           <p className="leading-7 text-muted-foreground">
             RockyGPT creates a random identifier for the current browser-tab session so questions
-            from that session can be reviewed together. Only a one-way hash is stored with the
-            transcript—not the raw identifier, an account, a name, or a raw IP address. The hash
-            expires with the transcript after 30 days and does not by itself identify the person.
-            Network addresses are separately converted to keyed hashes for short-lived abuse
-            prevention; raw IP addresses are not used as storage keys.
+            from that session can be reviewed together. The UI also issues a random, HTTP-only
+            browser cookie that expires no later than 30 days after its most recent use. Before
+            these identifiers are retained with chat records, they are converted to keyed hashes;
+            the raw identifiers are not stored in those records.
+          </p>
+          <p className="leading-7 text-muted-foreground">
+            To limit automated abuse, the UI immediately converts the source network address to a
+            keyed digest and keeps only a bounded in-memory request counter for approximately one
+            minute. The application does not write the raw network address or that short-lived
+            limiter digest to its logs or database.
           </p>
           <p className="leading-7 text-muted-foreground">
             RockyGPT does not have access to your student account, grades, schedule,
@@ -124,7 +134,7 @@ export default function PrivacyPage() {
         </section>
 
         <p className="mt-10 text-xs leading-5 text-muted-foreground">
-          Last updated July 19, 2026. This notice describes the invite-only RockyGPT pilot.
+          Last updated August 22, 2026. This notice describes the invite-only RockyGPT pilot.
         </p>
       </div>
     </main>

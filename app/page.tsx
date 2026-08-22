@@ -59,7 +59,7 @@ import {
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { bindGlobalTapHaptics, destroyHaptics, triggerHaptic } from '@/lib/haptics';
-import type { ChatTurnV2 } from '@/lib/brain-api';
+import { MAX_MESSAGE_LENGTH, type ChatTurnV2 } from '@/lib/brain-api';
 import { rockyModeCommandForMessage } from '../chat/rocky-mode';
 import { DevPageMenu } from '@/components/DevPageMenu';
 
@@ -363,20 +363,8 @@ function cleanSuggestedQuestions(value: unknown): string[] {
 }
 
 const ANONYMOUS_CONVERSATION_KEY = 'rockygpt_anonymous_conversation_v1';
-const VISITOR_COOKIE_KEY = 'rockygpt_visitor_id';
+const LEGACY_VISITOR_STORAGE_KEY = 'rockygpt_visitor_id';
 const CONVERSATION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function getOrCreateVisitorId(): string {
-  try {
-    const existing = window.localStorage.getItem(VISITOR_COOKIE_KEY);
-    if (existing && existing.length > 5) return existing;
-    const created = `visitor_${window.crypto.randomUUID().slice(0, 12)}`;
-    window.localStorage.setItem(VISITOR_COOKIE_KEY, created);
-    return created;
-  } catch {
-    return `visitor_${window.crypto.randomUUID().slice(0, 12)}`;
-  }
-}
 
 function getOrCreateConversationId(): string {
   try {
@@ -503,6 +491,9 @@ export default function Home() {
       } else {
         window.sessionStorage.removeItem('rockygpt_session_messages');
       }
+      // Visitor identity is now a short-lived, HTTP-only server cookie. Remove
+      // the older indefinitely persisted browser value during migration.
+      window.localStorage.removeItem(LEGACY_VISITOR_STORAGE_KEY);
       const seen = window.localStorage.getItem('rockygpt_welcome_seen');
       if (!seen) {
         if (isAutomatedTest) {
@@ -750,10 +741,18 @@ export default function Home() {
     // Read the ref, not `isLoading`: callers like the bulk runner hold this
     // function across many awaits, so the captured state value is frozen at
     // whatever it was when the run started and never reflects reality again.
-    if (!content.trim() || isLoadingRef.current || activeRequestRef.current) return false;
+    const normalizedContent = content.trim();
+    if (
+      !normalizedContent ||
+      normalizedContent.length > MAX_MESSAGE_LENGTH ||
+      isLoadingRef.current ||
+      activeRequestRef.current
+    ) {
+      return false;
+    }
 
     const userIdentity = createLocalMessageIdentity();
-    const rockyModeCommand = rockyModeCommandForMessage(content);
+    const rockyModeCommand = rockyModeCommandForMessage(normalizedContent);
     const requestedStyleMode =
       rockyModeCommand === 'enable'
         ? 'rocky'
@@ -765,7 +764,7 @@ export default function Home() {
     const userMessage: ChatMessage = {
       ...userIdentity,
       role: 'user',
-      content,
+      content: normalizedContent,
     };
     const assistantIdentity = createLocalMessageIdentity();
     const assistantMessageId = assistantIdentity.id;
@@ -789,7 +788,6 @@ export default function Home() {
       const history = buildRequestHistory(historyMessages);
       const conversationId = conversationIdRef.current || getOrCreateConversationId();
       conversationIdRef.current = conversationId;
-      const visitorId = getOrCreateVisitorId();
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: {
@@ -800,7 +798,6 @@ export default function Home() {
           message: userMessage.content,
           history,
           conversationId,
-          visitorId,
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
           locale: navigator.language,
           responseMode: 'concise',
@@ -955,23 +952,6 @@ export default function Home() {
     window.setTimeout(() => setCopyTranscriptState('idle'), 2000);
   };
 
-  /**
-   * Keeps a server-side copy of a transcript the user just downloaded. Fired
-   * after the download so it cannot delay or break it, and deliberately not
-   * awaited: the file is already saved, and a failed copy is not the user's
-   * problem to see.
-   */
-  const archiveTranscript = (transcript: ReturnType<typeof buildTranscriptExport>) => {
-    void fetch('/api/transcripts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ transcript }),
-      keepalive: true,
-    }).catch(() => {
-      // The download succeeded; losing the archived copy changes nothing here.
-    });
-  };
-
   const downloadTranscript = () => {
     try {
       const transcript = buildTranscriptExport(messages, {
@@ -994,7 +974,6 @@ export default function Home() {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      archiveTranscript(transcript);
       setCopyTranscriptState('downloaded');
       triggerHaptic('success');
     } catch {
@@ -1281,7 +1260,7 @@ export default function Home() {
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('keydown', handleMenuKeyDown);
     };
-  }, [isActionMenuOpen]);
+  }, [closeCampusActions, isActionMenuClosing, isActionMenuOpen]);
 
   const latestMessage = messages[messages.length - 1];
   const composerSuggestedQuestions =
@@ -1993,6 +1972,7 @@ export default function Home() {
                 placeholder="Ask RockyGPT"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
+                maxLength={MAX_MESSAGE_LENGTH}
               />
               {isLoading ? (
                 <button
