@@ -2,6 +2,8 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { DataSourceList } from '@/components/DataSourceList';
 import { DevPageMenu } from '@/components/DevPageMenu';
+import { DATA_URL } from '@/lib/services';
+import type { ScrapeSourceStatus } from '@/lib/data-types';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,9 +15,13 @@ export const metadata: Metadata = {
 export default async function DataSourcesPage() {
   if (process.env.NODE_ENV !== 'development') notFound();
 
-  const { getScrapeSourceStatuses, STATIC_DATA_NOT_SCRAPED } =
-    await import('@rockygpt/data/data-v2/scrape-status');
-  const sources = getScrapeSourceStatuses();
+  const response = await fetch(`${DATA_URL}/v1/dev/scrape-status`, { cache: 'no-store' });
+  if (!response.ok) throw new Error(`Data service answered ${response.status}.`);
+  const payload = (await response.json()) as {
+    sources: ScrapeSourceStatus[];
+    staticDataNotScraped: Array<{ title: string }>;
+  };
+  const sources = payload.sources;
   const freshCount = sources.filter((source) => source.freshnessStatus === 'fresh').length;
   const staleCount = sources.filter((source) => source.freshnessStatus === 'stale').length;
   const unknownCount = sources.filter((source) => source.freshnessStatus === 'unknown').length;
@@ -45,7 +51,7 @@ export default async function DataSourcesPage() {
         <DataSourceList sources={sources} />
 
         <p className="mt-4 text-xs leading-5 text-muted-foreground">
-          Not scraped: {STATIC_DATA_NOT_SCRAPED.map((item) => item.title.toLowerCase()).join(', ')}.
+          Not scraped: {payload.staticDataNotScraped.map((item) => item.title.toLowerCase()).join(', ')}.
           “Estimated” means the raw file time is being used because collector provenance is
           unavailable.
         </p>

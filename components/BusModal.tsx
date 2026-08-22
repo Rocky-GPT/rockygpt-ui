@@ -9,7 +9,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAccessibleDialog } from '@/components/useAccessibleDialog';
 import { X, Bus, MapPin, TrainFront } from 'lucide-react';
-import { shuttleSchedule, ShuttleRoute } from '@rockygpt/data/static/shuttleSchedule';
+import type { ShuttleRoute, ShuttleSchedule } from '@/lib/data-types';
 import { MODAL_PANEL } from '@/components/modalShell';
 
 interface ModalProps {
@@ -28,6 +28,17 @@ const pickupLocations = [
 
 type ShortlineDayKey = 'weekday' | 'saturday' | 'sunday';
 
+const EMPTY_SCHEDULE: ShuttleSchedule = {
+  trainLoop: [],
+  shortline: {
+    toNYC: { weekday: [], saturday: [], sunday: [] },
+    fromNYC: { weekday: [], saturday: [], sunday: [] },
+  },
+  weekday: [],
+  saturday: [],
+  sunday: [],
+};
+
 /**
  * Modal for Ramapo shuttle and bus schedules.
  */
@@ -36,6 +47,7 @@ export function BusModal({ isOpen, onClose }: ModalProps) {
   const [activeTab, setActiveTab] = useState<string>('Weekday');
   const [serviceType, setServiceType] = useState<'Roadrunner' | 'TrainLoop' | 'Shortline' | 'MoreInfo'>('Roadrunner');
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [shuttleSchedule, setShuttleSchedule] = useState<ShuttleSchedule>(EMPTY_SCHEDULE);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const serviceBadgeClass: Record<'Roadrunner' | 'TrainLoop' | 'Shortline' | 'MoreInfo', string> = {
     Roadrunner: 'bg-primary/20 border border-primary/35 text-primary-foreground',
@@ -59,6 +71,23 @@ export function BusModal({ isOpen, onClose }: ModalProps) {
   const today = new Date();
   const dayNum = today.getDay();
   const currentDayType = dayNum === 0 ? 'Sunday' : dayNum === 6 ? 'Saturday' : 'Weekday';
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const controller = new AbortController();
+    void fetch('/api/shuttle', { signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) throw new Error(`Shuttle service answered ${response.status}`);
+        return response.json() as Promise<ShuttleSchedule>;
+      })
+      .then(setShuttleSchedule)
+      .catch((error) => {
+        if (error instanceof Error && error.name !== 'AbortError') {
+          console.error('Unable to load shuttle schedule:', error);
+        }
+      });
+    return () => controller.abort();
+  }, [isOpen]);
 
   useEffect(() => {
     if (isOpen) {

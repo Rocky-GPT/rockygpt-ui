@@ -10,13 +10,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAccessibleDialog } from '@/components/useAccessibleDialog';
 import { ChevronDown, ChevronRight, Search, X } from 'lucide-react';
 import { MODAL_PANEL } from '@/components/modalShell';
-import {
-  CAMPUS_MAP_KEY,
-  MAP_LOCATIONS,
-  MapLocation,
-  getMapLocationByKey,
-  resolveMapLocation,
-} from '@rockygpt/data/map-locations';
+import type { MapLocation } from '@/lib/data-types';
+
+const CAMPUS_MAP_KEY = 'layer_campus_map';
 
 interface MapModalProps {
   isOpen: boolean;
@@ -131,19 +127,39 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
   const dialogRef = useAccessibleDialog(isOpen, onClose);
   const selectedItemRef = useRef<HTMLButtonElement | null>(null);
   const [search, setSearch] = useState('');
-  const [selectedKey, setSelectedKey] = useState<string>(() => {
-    const resolved = resolveMapLocation(initialLocationKey);
-    return resolved?.key ?? initialLocationKey ?? CAMPUS_MAP_KEY;
-  });
+  const [locations, setLocations] = useState<MapLocation[]>([]);
+  const [selectedKey, setSelectedKey] = useState<string>(initialLocationKey ?? CAMPUS_MAP_KEY);
   const [collapsedSections, setCollapsedSections] = useState<Record<MapLocation['type'], boolean>>(
     () => createDefaultCollapsedState(),
   );
+
+  const locationByKey = useMemo(
+    () => new Map(locations.map((location) => [location.key, location])),
+    [locations]
+  );
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const controller = new AbortController();
+    void fetch('/api/map', { signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) throw new Error(`Map service answered ${response.status}`);
+        return response.json() as Promise<{ locations?: MapLocation[] }>;
+      })
+      .then((payload) => setLocations(Array.isArray(payload.locations) ? payload.locations : []))
+      .catch((error) => {
+        if (error instanceof Error && error.name !== 'AbortError') {
+          console.error('Unable to load campus map:', error);
+        }
+      });
+    return () => controller.abort();
+  }, [isOpen]);
 
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = 'hidden';
       if (initialLocationKey) {
-        const resolved = resolveMapLocation(initialLocationKey);
+        const resolved = locationByKey.get(initialLocationKey) ?? filterLocations(locations, initialLocationKey)[0];
         if (resolved) {
           setSelectedKey(resolved.key);
           setCollapsedSections((prev) => ({
@@ -158,9 +174,9 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
     return () => {
       document.body.style.overflow = 'unset';
     };
-  }, [isOpen, initialLocationKey]);
+  }, [isOpen, initialLocationKey, locationByKey, locations]);
 
-  const filteredLocations = useMemo(() => filterLocations(MAP_LOCATIONS, search), [search]);
+  const filteredLocations = useMemo(() => filterLocations(locations, search), [locations, search]);
   const groupedLocations = useMemo(() => {
     const grouped: Record<MapLocation['type'], MapLocation[]> = {
       office: [],
@@ -184,7 +200,7 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
 
   useEffect(() => {
     if (isOpen && visibleSelectedKey) {
-      const selectedLoc = getMapLocationByKey(visibleSelectedKey);
+      const selectedLoc = locationByKey.get(visibleSelectedKey);
       if (selectedLoc) {
         setCollapsedSections((prev) => ({
           ...prev,
@@ -199,9 +215,9 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
       }, 180);
       return () => clearTimeout(timer);
     }
-  }, [isOpen, visibleSelectedKey]);
+  }, [isOpen, visibleSelectedKey, locationByKey]);
 
-  const selectedLocation = getMapLocationByKey(visibleSelectedKey) ?? getMapLocationByKey(CAMPUS_MAP_KEY);
+  const selectedLocation = locationByKey.get(visibleSelectedKey) ?? locationByKey.get(CAMPUS_MAP_KEY);
   if (!isOpen || !selectedLocation) return null;
   const previewMapUrl = selectedLocation.mapUrl;
 

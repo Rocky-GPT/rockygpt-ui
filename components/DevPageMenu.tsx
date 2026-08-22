@@ -23,7 +23,7 @@ const PAGES = [
   {
     href: '/data-explorer',
     label: 'Data Explorer',
-    description: 'Browse records and analytics',
+    description: 'Browse campus records and releases',
     icon: ChartNoAxesCombined,
   },
   {

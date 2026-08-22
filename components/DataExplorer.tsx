@@ -2,15 +2,12 @@
 
 import { FormEvent, useMemo, useRef, useState } from 'react';
 import {
-  Activity,
   ChevronLeft,
   ChevronRight,
   Database,
   RefreshCw,
   Search,
   ShieldCheck,
-  ThumbsDown,
-  ThumbsUp,
 } from 'lucide-react';
 import type {
   DataExplorerPayload,
@@ -35,16 +32,7 @@ const GROUPS: ExplorerDataset['group'][] = [
   'Campus data',
   'Retrieval',
   'Releases',
-  'Analytics',
-  'Telemetry',
 ];
-
-/**
- * Auto-refresh cadence. A poll is skipped whenever the previous one is still
- * running, so a slower response simply lowers the effective rate instead of
- * queueing overlapping requests against the database.
- */
-const AUTO_REFRESH_INTERVAL_MS = 1000;
 
 function formatNumber(value: number): string {
   return new Intl.NumberFormat('en-US').format(value);
@@ -60,30 +48,6 @@ function formatTimestamp(value: string | null): string {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return value;
   return parsed.toLocaleString();
-}
-
-function formatConversationTimestamp(value: string): string {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-
-  const now = new Date();
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const startOfDate = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
-  const dayDifference = Math.round(
-    (startOfToday.getTime() - startOfDate.getTime()) / (24 * 60 * 60 * 1000)
-  );
-  const time = parsed.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-
-  if (dayDifference === 0) return `Today, ${time}`;
-  if (dayDifference === 1) return `Yesterday, ${time}`;
-
-  return parsed.toLocaleString([], {
-    month: 'short',
-    day: 'numeric',
-    ...(parsed.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }),
-    hour: 'numeric',
-    minute: '2-digit',
-  });
 }
 
 function looksLikeTimestamp(value: string): boolean {
@@ -184,48 +148,6 @@ function HorizontalBars({
   );
 }
 
-function DailyRequests({ rows }: { rows: DataExplorerPayload['analytics']['dailyRequests'] }) {
-  const max = Math.max(1, ...rows.map((row) => row.count));
-  if (!rows.length) {
-    return <p className="text-sm text-muted-foreground">No requests recorded in this period.</p>;
-  }
-
-  return (
-    <div
-      className="overflow-x-auto pb-1"
-      role="img"
-      aria-label={rows.map((row) => `${row.date}: ${row.count} requests`).join(', ')}
-    >
-      <div className="flex h-40 min-w-[620px] items-end gap-1.5 border-b border-border px-1">
-        {rows.map((row, index) => (
-          <div
-            key={row.date}
-            className="group flex min-w-3 flex-1 flex-col items-center justify-end gap-1"
-          >
-            <div className="invisible whitespace-nowrap rounded bg-muted px-1.5 py-1 text-[10px] text-foreground group-hover:visible">
-              {formatNumber(row.count)} · {row.averageLatencyMs ?? '—'}ms
-            </div>
-            <div
-              className="w-full min-w-2 rounded-t bg-emerald-400"
-              style={{
-                height: `${row.count === 0 ? 0 : Math.max(4, (row.count / max) * 112)}px`,
-              }}
-            />
-            <span className="text-[9px] text-muted-foreground">
-              {index % 5 === 0 || index === rows.length - 1
-                ? new Date(`${row.date}T12:00:00`).toLocaleDateString(undefined, {
-                    month: 'numeric',
-                    day: 'numeric',
-                  })
-                : '\u00a0'}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function MetricCard({
   label,
   value,
@@ -249,11 +171,6 @@ function MetricCard({
       <p className="mt-1 text-xs leading-5 text-muted-foreground">{detail}</p>
     </div>
   );
-}
-
-function rowText(row: Record<string, ExplorerValue>, key: string): string {
-  const value = row[key];
-  return value === null || value === undefined ? '' : String(value);
 }
 
 export function DataExplorer({
@@ -283,10 +200,6 @@ export function DataExplorer({
         .sort((left, right) => right.count - left.count),
     [data.datasets]
   );
-  const positiveRate = data.analytics.feedbackCount
-    ? Math.round((data.analytics.positiveFeedbackCount / data.analytics.feedbackCount) * 100)
-    : null;
-
   const load = async (
     datasetKey: string,
     page: number,
@@ -377,7 +290,7 @@ export function DataExplorer({
           </div>
         )}
 
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2">
           <MetricCard
             label="Active content"
             value={formatNumber(data.release.structuredRecordCount)}
@@ -385,39 +298,14 @@ export function DataExplorer({
             icon={<Database className="h-5 w-5" />}
           />
           <MetricCard
-            label={`Requests · ${data.analytics.days}d`}
-            value={formatNumber(data.analytics.requestCount)}
-            detail={
-              data.analytics.averageLatencyMs === null
-                ? 'No traffic recorded yet'
-                : `${formatNumber(data.analytics.averageLatencyMs)}ms avg · ${formatNumber(data.analytics.p50LatencyMs || 0)}ms p50 · ${formatNumber(data.analytics.p95LatencyMs || 0)}ms p95`
-            }
-            icon={<Activity className="h-5 w-5" />}
-          />
-          <MetricCard
             label="Quality gates"
             value={`${formatNumber(data.release.sourceStatuses.find((s) => s.status === 'ok')?.count || 0)} / ${formatNumber(data.release.sourceCount)}`}
             detail="Sources passing quality gates"
             icon={<ShieldCheck className="h-5 w-5" />}
           />
-          <MetricCard
-            label="Student feedback"
-            value={positiveRate === null ? '—' : `${positiveRate}%`}
-            detail={
-              data.analytics.feedbackCount
-                ? `${formatNumber(data.analytics.positiveFeedbackCount)} up · ${formatNumber(data.analytics.negativeFeedbackCount)} down (${formatNumber(data.analytics.feedbackCount)} total)`
-                : 'No feedback submitted in last 30 days'
-            }
-            icon={
-              <span className="flex gap-1">
-                <ThumbsUp className="h-4 w-4" />
-                <ThumbsDown className="h-4 w-4" />
-              </span>
-            }
-          />
         </div>
 
-        <div className="grid min-w-0 gap-5 xl:grid-cols-2">
+        <div className="min-w-0">
           <section className="min-w-0 rounded-2xl border border-border bg-muted/10 p-5">
             <div className="mb-5 flex items-baseline justify-between gap-3">
               <h2 className="font-semibold">Active campus records</h2>
@@ -427,16 +315,6 @@ export function DataExplorer({
             </div>
             <HorizontalBars rows={structuredCounts} emptyLabel="No active campus records." />
           </section>
-
-          <section className="min-w-0 rounded-2xl border border-border bg-muted/10 p-5">
-            <div className="mb-5 flex items-baseline justify-between gap-3">
-              <h2 className="font-semibold">Requests by day</h2>
-              <span className="text-xs text-muted-foreground">
-                Last {data.analytics.days} days
-              </span>
-            </div>
-            <DailyRequests rows={data.analytics.dailyRequests} />
-          </section>
         </div>
       </section>
 
@@ -444,7 +322,7 @@ export function DataExplorer({
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Record explorer</h1>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
-            Browse active campus data, retrieval records, release history, and operational analytics.
+            Browse active campus data, retrieval records, and release history.
           </p>
         </div>
 
