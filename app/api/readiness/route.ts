@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
 
 export async function GET() {
   const checks = await Promise.allSettled([
-    fetch(`${brainUrl()}/health`, { signal: AbortSignal.timeout(3_000), cache: 'no-store' }),
+    fetch(`${brainUrl()}/readiness`, { signal: AbortSignal.timeout(3_000), cache: 'no-store' }),
     fetch(`${DATA_URL}/readiness`, { signal: AbortSignal.timeout(3_000), cache: 'no-store' }),
   ]);
   const failing: string[] = [];

@@ -570,22 +570,6 @@ const inferFacultyHelpTags = (person: FacultyStaffContact): string[] => {
   return ['Academic guidance', 'Course planning'];
 };
 
-const countDirectoryBuckets = (contacts: NormalizedDirectoryContact[]) => {
-  let offices = 0;
-  let people = 0;
-
-  for (const contact of contacts) {
-    if (contact.bucket === 'Offices') offices += 1;
-    else people += 1;
-  }
-
-  return {
-    offices,
-    people,
-    total: contacts.length,
-  };
-};
-
 /**
  * Modal for searching campus offices, faculty, staff, and other contacts.
  */
@@ -630,7 +614,6 @@ export function DirectoryModal({ isOpen, onClose }: ModalProps) {
 
   if (!isOpen) return null;
 
-  const counts = countDirectoryBuckets(allContacts);
   const normalizedQuery = searchQuery.trim().toLowerCase();
   const filteredContacts = normalizedQuery
     ? allContacts.filter((entry) => {

@@ -10,21 +10,13 @@ import {
   Bot,
   Check,
   ChevronDown,
-  ChevronUp,
   Clock,
-  Code2,
   Cookie,
   Copy,
-  Cpu,
   ExternalLink,
   Eye,
   EyeOff,
-  FileCode,
   FileJson,
-  Filter,
-  Flame,
-  Globe,
-  Layers,
   LayoutGrid,
   MessageSquare,
   RefreshCw,
@@ -112,12 +104,6 @@ export function LogsDashboard() {
     );
   };
 
-  const toggleRoute = (key: string) => {
-    setSelectedRoutes((prev) =>
-      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
-    );
-  };
-
   // Close menus when clicking outside or pressing Escape
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -148,7 +134,7 @@ export function LogsDashboard() {
   const [secondsAgo, setSecondsAgo] = useState(0);
   const [expandedLogIds, setExpandedLogIds] = useState<Set<string>>(new Set());
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
   const [isSyncing, setIsSyncing] = useState(false);
   const lastKnownVersionRef = useRef<string | null>(null);
 
@@ -1116,7 +1102,6 @@ export function LogsDashboard() {
             <div className="space-y-4">
               {visibleDeviceGroups.map((devGroup) => {
                 const isDevCollapsed = collapsedDevices.has(devGroup.visitorId);
-                const first = devGroup.logs[devGroup.logs.length - 1];
                 const last = devGroup.logs[0];
                 const feedbackCount = devGroup.logs.filter(
                   (l) => l.feedback_rating !== null && l.feedback_rating !== undefined

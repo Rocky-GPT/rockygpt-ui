@@ -35,7 +35,7 @@ jobs:
       - name: Production build
         run: npm run build
 
-  accessibility:
+  browser-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -50,8 +50,7 @@ jobs:
 
       - run: npx playwright install chromium
 
-      # The suite drives the rendered page, not the brain, so it runs without
-      # the service. Chat itself answers 503 here, which these checks do not
-      # assert on.
-      - name: Accessibility tests
-        run: npm run test:a11y
+      # A local deterministic brain stub exercises the UI's real server route;
+      # no model credentials or network calls are used.
+      - name: Accessibility and browser regression tests
+        run: npm run test:e2e

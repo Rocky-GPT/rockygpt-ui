@@ -30,6 +30,11 @@ export interface ChatResult {
   error?: { code: string; message: string; retryable: boolean };
 }
 
+export interface ClientAbuseIdentity {
+  key: string;
+  signature?: string;
+}
+
 export const MAX_MESSAGE_LENGTH = 2_000;
 export const MAX_HISTORY_TURNS = 10;
 
@@ -44,15 +49,22 @@ export function brainUrl(): string {
   return (process.env.BRAIN_URL || 'http://127.0.0.1:8000').replace(/\/+$/, '');
 }
 
-export async function askBrain(request: ChatRequest): Promise<ChatResult> {
+export async function askBrain(
+  request: ChatRequest,
+  clientIdentity?: ClientAbuseIdentity
+): Promise<Response> {
   try {
-    const response = await fetch(`${brainUrl()}/v1/chat`, {
+    const headers = new Headers({ accept: 'application/json', 'content-type': 'application/json' });
+    if (clientIdentity?.signature) {
+      headers.set('x-rockygpt-client-key', clientIdentity.key);
+      headers.set('x-rockygpt-client-signature', clientIdentity.signature);
+    }
+    return await fetch(`${brainUrl()}/v1/chat`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers,
       body: JSON.stringify(request),
       signal: AbortSignal.timeout(60_000),
     });
-    return (await response.json()) as ChatResult;
   } catch (error) {
     throw new BrainUnreachableError(error);
   }
