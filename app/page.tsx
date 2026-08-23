@@ -62,6 +62,7 @@ import { bindGlobalTapHaptics, destroyHaptics, triggerHaptic } from '@/lib/hapti
 import { MAX_MESSAGE_LENGTH, type ChatTurnV2 } from '@/lib/brain-api';
 import { rockyModeCommandForMessage } from '../chat/rocky-mode';
 import { DevPageMenu } from '@/components/DevPageMenu';
+import { MessageJsonModal } from '@/components/MessageJsonModal';
 
 interface ChatMessage {
   id: string;
@@ -77,6 +78,13 @@ interface ChatMessage {
   retryContent?: string;
   retryUserMessageId?: string;
   isTyping?: boolean;
+  /**
+   * The response body exactly as received, kept only to back the dev-only
+   * JSON inspector. Held verbatim rather than rebuilt from the fields above
+   * so it still shows anything this component does not model — `route`, for
+   * one, which the brain sends and the UI never reads.
+   */
+  debugPayload?: Record<string, unknown>;
 }
 
 interface Citation {
@@ -620,6 +628,10 @@ export default function Home() {
     setIsLoading(value);
   };
 
+  // Per-message JSON inspector (Dev Mode only). Holds the id rather than the
+  // message so the panel keeps following that message as it re-renders.
+  const [jsonMessageId, setJsonMessageId] = useState<string | null>(null);
+
   // Bulk Questions Runner state (Dev Mode only)
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
   const [bulkQueue, setBulkQueue] = useState<string[]>([]);
@@ -870,6 +882,9 @@ export default function Home() {
               question: userMessage.content,
               uiActions: responseActions,
               suggestedQuestions: responseSuggestions,
+              debugPayload: IS_DEVELOPMENT
+                ? (data as unknown as Record<string, unknown>)
+                : undefined,
             };
           }
           return msg;
@@ -1461,6 +1476,16 @@ export default function Home() {
                           <span className="text-sm text-muted-foreground/80 mt-0.5">
                             {formatTimestamp(m.timestamp)}
                           </span>
+                        )}
+                        {isDevViewActive && !m.isTyping && (
+                          <button
+                            type="button"
+                            onClick={() => setJsonMessageId(m.id)}
+                            title="Inspect the raw response for this message"
+                            className="mt-0.5 rounded-full border border-sky-400/30 bg-sky-400/10 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wide text-sky-300 transition-colors hover:bg-sky-400/20 hover:text-sky-200"
+                          >
+                            JSON
+                          </button>
                         )}
                       </div>
                     </div>
@@ -2069,6 +2094,23 @@ export default function Home() {
         onClose={() => setIsBulkModalOpen(false)}
         onStartSequence={startBulkSequence}
       />
+      {(() => {
+        // Resolved at render so a message updated after the panel opened
+        // shows its current payload rather than a snapshot.
+        const jsonMessage = jsonMessageId
+          ? messages.find((msg) => msg.id === jsonMessageId)
+          : undefined;
+        return (
+          <MessageJsonModal
+            isOpen={isDevViewActive && !!jsonMessage}
+            onClose={() => setJsonMessageId(null)}
+            question={jsonMessage?.question}
+            requestId={jsonMessage?.requestId}
+            timestamp={jsonMessage?.timestamp}
+            payload={jsonMessage?.debugPayload}
+          />
+        );
+      })()}
       <WelcomeModal
         isOpen={isWelcomeModalOpen}
         onClose={handleCloseWelcome}
