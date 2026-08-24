@@ -78,6 +78,7 @@ interface ChatMessage {
   retryContent?: string;
   retryUserMessageId?: string;
   isTyping?: boolean;
+  brainTrace?: BrainTrace;
   /**
    * The response body exactly as received, kept only to back the dev-only
    * JSON inspector. Held verbatim rather than rebuilt from the fields above
@@ -101,16 +102,18 @@ interface UiAction {
   payload?: Record<string, string>;
 }
 
+interface BrainTrace {
+  in: Record<string, unknown>;
+  out: Record<string, unknown>;
+}
+
 interface ChatApiResponse {
   requestId?: string;
   answer?: string;
   citations?: Citation[];
   uiActions?: UiAction[];
   suggestedQuestions?: string[];
-  brainTrace?: {
-    in: Record<string, unknown>;
-    out: Record<string, unknown>;
-  };
+  brainTrace?: BrainTrace;
   error?: {
     code?: string;
     message?: string;
@@ -886,6 +889,7 @@ export default function Home() {
               question: userMessage.content,
               uiActions: responseActions,
               suggestedQuestions: responseSuggestions,
+              brainTrace: data.brainTrace,
               debugPayload: IS_DEVELOPMENT
                 ? (data as unknown as Record<string, unknown>)
                 : undefined,
@@ -945,23 +949,16 @@ export default function Home() {
     return true;
   };
 
-  /**
-   * The whole conversation as JSON, for reporting a bad answer.
-   *
-   * Every bug found in this app so far was found by a person typing at it and
-   * sending a screenshot, which shows the answer but not the route, the
-   * decision source, the facts behind it, or the dataset it came from — the
-   * fields that say *why* it answered that way. This copies all of it.
-   */
-  const copyTranscript = async () => {
-    const transcript = buildTranscriptExport(messages, {
-      conversationId: conversationIdRef.current,
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      rockyMode,
-    });
-
+  /** Copy only the latest AI #1 intent and Python result boundary. */
+  const copyBrainTrace = async () => {
+    const trace = [...messages]
+      .reverse()
+      .find((message) => message.role === 'assistant' && message.brainTrace)?.brainTrace;
     try {
-      await navigator.clipboard.writeText(JSON.stringify(transcript, null, 2));
+      if (!trace) throw new Error('No brain trace is available.');
+      await navigator.clipboard.writeText(
+        JSON.stringify({ IN: trace.in, OUT: trace.out }, null, 2)
+      );
       setCopyTranscriptState('copied');
       triggerHaptic('success');
     } catch {
@@ -1010,7 +1007,7 @@ export default function Home() {
     } else {
       exportClickTimerRef.current = setTimeout(() => {
         exportClickTimerRef.current = null;
-        void copyTranscript();
+        void copyBrainTrace();
       }, 250);
     }
   };
@@ -2041,8 +2038,8 @@ export default function Home() {
             <button
               type="button"
               onClick={handleExportClick}
-              aria-label="Copy transcript (double-click to download)"
-              title="Click to copy JSON, double-click to download JSON file"
+              aria-label="Copy latest brain IN and OUT JSON"
+              title="Click to copy latest brain IN/OUT; double-click to download transcript"
               className={`flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl border transition-colors cursor-pointer ${
                 copyTranscriptState === 'copied'
                   ? 'border-emerald-500/50 bg-emerald-500/15 text-emerald-300'
