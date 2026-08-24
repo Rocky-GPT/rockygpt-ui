@@ -5,6 +5,7 @@ import { Copy, Check, FileCode, ChevronDown, Download } from 'lucide-react';
 
 interface JsonViewerProps {
   data: unknown;
+  title?: string;
   initialExpanded?: boolean;
   /**
    * Render the payload permanently open with no show/hide control. For the
@@ -74,6 +75,7 @@ function formatByteSize(bytes: number): string {
 
 export function JsonViewer({
   data,
+  title = 'Telemetry Trace',
   initialExpanded = false,
   alwaysOpen = false,
   downloadFileName,
@@ -123,7 +125,7 @@ export function JsonViewer({
         <div className="flex items-center gap-2.5 flex-wrap">
           <div className="flex items-center gap-2">
             <FileCode className="h-4 w-4 text-sky-400" />
-            <span className="text-xs font-semibold text-neutral-300">Telemetry Trace</span>
+            <span className="text-xs font-semibold text-neutral-300">{title}</span>
             <span className="text-[11px] font-mono text-neutral-500">
               · {formatByteSize(byteSize)}
             </span>
