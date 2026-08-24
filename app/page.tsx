@@ -949,16 +949,16 @@ export default function Home() {
     return true;
   };
 
-  /** Copy only the latest AI #1 intent and Python result boundary. */
-  const copyBrainTrace = async () => {
-    const trace = [...messages]
-      .reverse()
-      .find((message) => message.role === 'assistant' && message.brainTrace)?.brainTrace;
+  /** Copy every completed AI #1 intent and Python result boundary in chat order. */
+  const copyBrainTraces = async () => {
+    const turns = messages.flatMap((message) =>
+      message.role === 'assistant' && message.brainTrace
+        ? [{ IN: message.brainTrace.in, OUT: message.brainTrace.out }]
+        : []
+    );
     try {
-      if (!trace) throw new Error('No brain trace is available.');
-      await navigator.clipboard.writeText(
-        JSON.stringify({ IN: trace.in, OUT: trace.out }, null, 2)
-      );
+      if (turns.length === 0) throw new Error('No brain trace is available.');
+      await navigator.clipboard.writeText(JSON.stringify({ turns }, null, 2));
       setCopyTranscriptState('copied');
       triggerHaptic('success');
     } catch {
@@ -1007,7 +1007,7 @@ export default function Home() {
     } else {
       exportClickTimerRef.current = setTimeout(() => {
         exportClickTimerRef.current = null;
-        void copyBrainTrace();
+        void copyBrainTraces();
       }, 250);
     }
   };
@@ -2038,8 +2038,8 @@ export default function Home() {
             <button
               type="button"
               onClick={handleExportClick}
-              aria-label="Copy latest brain IN and OUT JSON"
-              title="Click to copy latest brain IN/OUT; double-click to download transcript"
+              aria-label="Copy full chat brain IN and OUT JSON"
+              title="Click to copy all brain IN/OUT turns; double-click to download transcript"
               className={`flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl border transition-colors cursor-pointer ${
                 copyTranscriptState === 'copied'
                   ? 'border-emerald-500/50 bg-emerald-500/15 text-emerald-300'
