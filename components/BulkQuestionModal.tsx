@@ -6,7 +6,7 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAccessibleDialog } from '@/components/useAccessibleDialog';
 import {
   X,
@@ -35,6 +35,7 @@ interface BulkQuestionModalProps {
  * sends them in order, so the order in the file is the test.
  */
 const SAMPLE_QUESTIONS: string[] = capabilityTestQuestions;
+const QUESTIONS_STORAGE_KEY = 'rockygpt_bulk_questions';
 
 const DELAY_OPTIONS = [
   { label: '0.8s (Fast)', value: 800 },
@@ -52,6 +53,28 @@ export function BulkQuestionModal({
   const [delayMs, setDelayMs] = useState(1500);
   const dialogRef = useAccessibleDialog(isOpen, onClose);
 
+  useEffect(() => {
+    try {
+      const cachedQuestions = window.localStorage.getItem(QUESTIONS_STORAGE_KEY);
+      if (cachedQuestions !== null) setText(cachedQuestions);
+    } catch {
+      // Keep the runner usable when browser storage is unavailable.
+    }
+  }, []);
+
+  const updateText = (value: string) => {
+    setText(value);
+    try {
+      if (value) {
+        window.localStorage.setItem(QUESTIONS_STORAGE_KEY, value);
+      } else {
+        window.localStorage.removeItem(QUESTIONS_STORAGE_KEY);
+      }
+    } catch {
+      // Keep the runner usable when browser storage is unavailable.
+    }
+  };
+
   if (!isOpen) return null;
 
   const parsedQuestions = text
@@ -66,11 +89,11 @@ export function BulkQuestionModal({
   };
 
   const handleLoadSample = () => {
-    setText(SAMPLE_QUESTIONS.join('\n'));
+    updateText(SAMPLE_QUESTIONS.join('\n'));
   };
 
   const handleClear = () => {
-    setText('');
+    updateText('');
   };
 
   return (
@@ -149,7 +172,7 @@ export function BulkQuestionModal({
             <textarea
               id="bulk-questions-input"
               value={text}
-              onChange={(e) => setText(e.target.value)}
+              onChange={(e) => updateText(e.target.value)}
               placeholder={`Where is the Potter Library?\nWhat time does the Atrium close?\nHow do I connect to campus Wi-Fi?\nWhere is the Bradley Center?`}
               rows={8}
               className="w-full resize-none rounded-xl border border-input bg-card p-3.5 font-mono text-xs leading-relaxed text-foreground placeholder:text-muted-foreground/60 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
