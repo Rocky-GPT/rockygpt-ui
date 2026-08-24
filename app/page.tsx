@@ -107,6 +107,10 @@ interface ChatApiResponse {
   citations?: Citation[];
   uiActions?: UiAction[];
   suggestedQuestions?: string[];
+  brainTrace?: {
+    in: Record<string, unknown>;
+    out: Record<string, unknown>;
+  };
   error?: {
     code?: string;
     message?: string;

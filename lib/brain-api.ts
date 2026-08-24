@@ -27,6 +27,10 @@ export interface ChatResult {
   uiActions?: Array<{ type: string; payload?: Record<string, string> }>;
   isError?: false;
   suggestedQuestions?: string[];
+  brainTrace?: {
+    in: Record<string, unknown>;
+    out: Record<string, unknown>;
+  };
   error?: { code: string; message: string; retryable: boolean };
 }
 
