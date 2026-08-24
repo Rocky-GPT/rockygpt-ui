@@ -9,7 +9,7 @@
 
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { memo, useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   ThumbsUp,
   ThumbsDown,
@@ -57,6 +57,7 @@ import {
   MajorsModal,
 } from '@/components/QuickAccessButtons';
 import ReactMarkdown from 'react-markdown';
+import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { bindGlobalTapHaptics, destroyHaptics, triggerHaptic } from '@/lib/haptics';
 import { MAX_MESSAGE_LENGTH, type ChatTurnV2 } from '@/lib/brain-api';
@@ -320,6 +321,120 @@ function linkSmartChips(text: string): string {
   return restored;
 }
 
+interface AnswerMarkdownProps {
+  content: string;
+  onOpenMap: (locationKey: string | null) => void;
+}
+
+/**
+ * Keeps completed answers out of React's work while the newest answer reveals.
+ * Only the active answer's content changes, so prior Markdown trees are reused.
+ */
+const AnswerMarkdown = memo(function AnswerMarkdown({
+  content,
+  onOpenMap,
+}: AnswerMarkdownProps) {
+  const components = useMemo<Components>(
+    () => ({
+      strong: ({ ...props }) => (
+        <strong className="font-semibold text-foreground" {...props} />
+      ),
+      a: ({ href, children, ...props }) => {
+        const textContent =
+          typeof children === 'string'
+            ? children
+            : Array.isArray(children)
+              ? children.map((child) => (typeof child === 'string' ? child : '')).join('')
+              : '';
+        const isPhone =
+          href?.startsWith('tel:') || /^\(?201\)?[-.\s]?684[-.\s]?\d{4}$/.test(textContent.trim());
+
+        if (isPhone) {
+          const telHref = href?.startsWith('tel:')
+            ? href
+            : `tel:${textContent.replace(/[^\d]/g, '')}`;
+          return (
+            <a
+              href={telHref}
+              className="inline cursor-pointer font-medium text-emerald-400 underline decoration-1 decoration-emerald-500/40 underline-offset-4 transition-colors hover:text-emerald-300 hover:decoration-emerald-300 active:opacity-70"
+              title={`Call ${textContent}`}
+              {...props}
+            >
+              <span>{children}</span>
+            </a>
+          );
+        }
+        if (href?.startsWith('mailto:')) {
+          return (
+            <a
+              href={href}
+              className="inline cursor-pointer font-medium text-violet-400 underline decoration-1 decoration-violet-500/40 underline-offset-4 transition-colors hover:text-violet-300 hover:decoration-violet-300 active:opacity-70"
+              title={`Email ${href.replace('mailto:', '')}`}
+              {...props}
+            >
+              <span>{children}</span>
+            </a>
+          );
+        }
+        if (href?.startsWith('#map:')) {
+          const roomKey = decodeURIComponent(href.replace('#map:', ''));
+          return (
+            <button
+              type="button"
+              onClick={() => onOpenMap(roomKey)}
+              className="inline cursor-pointer border-0 bg-transparent p-0 text-left font-medium text-rose-400 underline decoration-1 decoration-rose-500/40 underline-offset-4 transition-colors hover:text-rose-300 hover:decoration-rose-300 active:opacity-70"
+              title={`View ${roomKey} on Campus Map`}
+            >
+              <span>{children}</span>
+            </button>
+          );
+        }
+        const safeHref =
+          href?.startsWith('http://') ||
+          href?.startsWith('https://') ||
+          href?.startsWith('tel:') ||
+          href?.startsWith('mailto:') ||
+          href?.startsWith('#')
+            ? href
+            : `https://${href}`;
+
+        return (
+          <a
+            href={safeHref}
+            className="inline font-medium text-rose-400 underline decoration-1 decoration-rose-500/40 underline-offset-4 transition-colors hover:text-rose-300 hover:decoration-rose-300 active:opacity-70"
+            target="_blank"
+            rel="noopener noreferrer"
+            {...props}
+          >
+            <span>{children}</span>
+          </a>
+        );
+      },
+      p: ({ ...props }) => <p className="mb-3 last:mb-0" {...props} />,
+      table: ({ ...props }) => (
+        <div className="my-4 overflow-x-auto rounded-xl border border-border/50 scrollbar-none">
+          <table className="w-full border-collapse text-xs sm:text-sm" {...props} />
+        </div>
+      ),
+      thead: ({ ...props }) => <thead className="bg-muted/50" {...props} />,
+      th: ({ ...props }) => (
+        <th
+          className="border border-border/50 px-4 py-2 text-left font-bold"
+          {...props}
+        />
+      ),
+      td: ({ ...props }) => <td className="border border-border/50 px-4 py-2" {...props} />,
+    }),
+    [onOpenMap]
+  );
+
+  return (
+    <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+      {linkSmartChips(content)}
+    </ReactMarkdown>
+  );
+});
+
 // Helper to format timestamp
 function formatTimestamp(timestamp: number): string {
   const date = new Date(timestamp);
@@ -530,6 +645,11 @@ export default function Home() {
 
   // Synchronize active chat messages with sessionStorage
   useEffect(() => {
+    // Development reloads intentionally start with a clean chat, so persisting
+    // every reveal frame there only blocks the bulk runner with unused work.
+    // In production, wait for the animated answer to settle before writing the
+    // same final conversation state that was persisted previously.
+    if (IS_DEVELOPMENT || messages.some((message) => message.isTyping)) return;
     try {
       if (messages.length > 0) {
         window.sessionStorage.setItem('rockygpt_session_messages', JSON.stringify(messages));
@@ -1183,10 +1303,10 @@ export default function Home() {
     }
   };
 
-  const openMapModal = (locationKey: string | null = null) => {
+  const openMapModal = useCallback((locationKey: string | null = null) => {
     setMapModalInitialKey(locationKey);
     setIsMapModalOpen(true);
-  };
+  }, []);
 
   const runUiAction = (action: UiAction) => {
     switch (action.type) {
@@ -1461,6 +1581,7 @@ export default function Home() {
               <div
                 key={m.id}
                 className={`flex flex-col gap-4 ${m.role === 'user' ? 'items-end' : 'items-start w-full'}`}
+                style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 160px' }}
               >
                 {m.role === 'user' ? (
                   <div className="max-w-[80%]">
@@ -1519,110 +1640,7 @@ export default function Home() {
                             m.isTyping ? 'rocky-answer-typing' : ''
                           }`}
                         >
-                          <ReactMarkdown
-                            remarkPlugins={[remarkGfm]}
-                            components={{
-                              strong: ({ ...props }) => (
-                                <strong className="font-semibold text-foreground" {...props} />
-                              ),
-                              a: ({ href, children, ...props }) => {
-                                const textContent =
-                                  typeof children === 'string'
-                                    ? children
-                                    : Array.isArray(children)
-                                    ? children.map((c) => (typeof c === 'string' ? c : '')).join('')
-                                    : '';
-                                const isPhone =
-                                  href?.startsWith('tel:') ||
-                                  /^\(?201\)?[-.\s]?684[-.\s]?\d{4}$/.test(textContent.trim());
-
-                                if (isPhone) {
-                                  const telHref = href?.startsWith('tel:')
-                                    ? href
-                                    : `tel:${textContent.replace(/[^\d]/g, '')}`;
-                                  return (
-                                    <a
-                                      href={telHref}
-                                      className="inline font-medium text-emerald-400 underline decoration-emerald-500/40 decoration-1 underline-offset-4 transition-colors hover:text-emerald-300 hover:decoration-emerald-300 active:opacity-70 cursor-pointer"
-                                      title={`Call ${textContent}`}
-                                      {...props}
-                                    >
-                                      <span>{children}</span>
-                                    </a>
-                                  );
-                                }
-                                if (href?.startsWith('mailto:')) {
-                                  return (
-                                    <a
-                                      href={href}
-                                      className="inline font-medium text-violet-400 underline decoration-violet-500/40 decoration-1 underline-offset-4 transition-colors hover:text-violet-300 hover:decoration-violet-300 active:opacity-70 cursor-pointer"
-                                      title={`Email ${href.replace('mailto:', '')}`}
-                                      {...props}
-                                    >
-                                      <span>{children}</span>
-                                    </a>
-                                  );
-                                }
-                                if (href?.startsWith('#map:')) {
-                                  const roomKey = decodeURIComponent(href.replace('#map:', ''));
-                                  return (
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setMapModalInitialKey(roomKey);
-                                        setIsMapModalOpen(true);
-                                      }}
-                                      className="inline font-medium text-rose-400 underline decoration-rose-500/40 decoration-1 underline-offset-4 transition-colors hover:text-rose-300 hover:decoration-rose-300 active:opacity-70 cursor-pointer text-left p-0 bg-transparent border-0"
-                                      title={`View ${roomKey} on Campus Map`}
-                                    >
-                                      <span>{children}</span>
-                                    </button>
-                                  );
-                                }
-                                const safeHref =
-                                  href?.startsWith('http://') ||
-                                  href?.startsWith('https://') ||
-                                  href?.startsWith('tel:') ||
-                                  href?.startsWith('mailto:') ||
-                                  href?.startsWith('#')
-                                    ? href
-                                    : `https://${href}`;
-
-                                return (
-                                  <a
-                                    href={safeHref}
-                                    className="inline font-medium text-rose-400 underline decoration-rose-500/40 decoration-1 underline-offset-4 transition-colors hover:text-rose-300 hover:decoration-rose-300 active:opacity-70"
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    {...props}
-                                  >
-                                    <span>{children}</span>
-                                  </a>
-                                );
-                              },
-                              p: ({ ...props }) => <p className="mb-3 last:mb-0" {...props} />,
-                              table: ({ ...props }) => (
-                                <div className="my-4 overflow-x-auto scrollbar-none rounded-xl border border-border/50">
-                                  <table
-                                    className="w-full border-collapse text-xs sm:text-sm"
-                                    {...props}
-                                  />
-                                </div>
-                              ),
-                              thead: ({ ...props }) => <thead className="bg-muted/50" {...props} />,
-                              th: ({ ...props }) => (
-                                <th
-                                  className="border border-border/50 px-4 py-2 text-left font-bold"
-                                  {...props}
-                                />
-                              ),
-                              td: ({ ...props }) => (
-                                <td className="border border-border/50 px-4 py-2" {...props} />
-                              ),
-                            }}
-                          >
-                            {linkSmartChips(m.content)}
-                          </ReactMarkdown>
+                          <AnswerMarkdown content={m.content} onOpenMap={openMapModal} />
                         </div>
                         {!m.isTyping &&
                           ((m.uiActions?.length || 0) > 0 ||
