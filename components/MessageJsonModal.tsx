@@ -126,6 +126,13 @@ const STAGES: ReadonlyArray<{
   select?: (pipeline: Record<string, unknown>) => unknown;
   /** Starts shut behind a View control instead of being permanently open. */
   collapsed?: boolean;
+  /**
+   * Drop the box entirely when it has nothing in it, rather than drawing
+   * `null`. For a stage that only some lanes have, an empty box reads as a
+   * stage that failed — and in a pipeline where a failure stops the turn, that
+   * is a alarming thing to show for a turn that went fine.
+   */
+  omitWhenEmpty?: boolean;
   preview?: (data: unknown) => unknown;
   hidden?: readonly string[];
 }> = [
@@ -149,7 +156,10 @@ const STAGES: ReadonlyArray<{
   {
     key: 'operation',
     title: 'BRAIN #1 · create plan',
+    // Only CODE has an operation to write. The other lanes are finished after
+    // understanding the question, so there is no stage here to draw.
     select: (p) => recordValue(p.plan)?.operation ?? null,
+    omitWhenEmpty: true,
   },
   { key: 'execution', title: 'PYTHON · execute the lane' },
   // Context comes last on purpose. The pipeline is what anyone opens this to
@@ -374,7 +384,10 @@ export function MessageJsonModal({
           </div>
 
           <div className="min-h-0 flex-1 overflow-auto">
-            {STAGES.map(({ key, title, select, preview, hidden, collapsed }, index) => (
+            {STAGES.filter(
+              ({ select, omitWhenEmpty }) =>
+                !omitWhenEmpty || (select ? select(pipeline) : null) != null
+            ).map(({ key, title, select, preview, hidden, collapsed }, index) => (
               <JsonViewer
                 key={key}
                 data={select ? select(pipeline) : (pipeline[key] ?? null)}
