@@ -103,6 +103,14 @@ interface UiAction {
   payload?: Record<string, string>;
 }
 
+/** What a bulk run turned out to be, once it ended however it ended. */
+interface BulkOutcome {
+  asked: number;
+  total: number;
+  stopped: boolean;
+  reason?: string;
+}
+
 interface BrainTrace {
   question: Record<string, unknown>;
   memory: Record<string, unknown>;
@@ -552,9 +560,19 @@ async function chatFailureFromResponse(response: Response): Promise<ChatRequestF
     );
   }
   if (response.status === 503 || code === 'SERVICE_UNAVAILABLE' || code === 'DATASET_UNAVAILABLE') {
+    // Say what the brain said. A 503 is no longer one thing: a lookup Rocky
+    // cannot do yet, a data service that did not answer, a planner that
+    // failed. The brain distinguishes them and words each for a student —
+    // `public_message` is that field's whole job — so overwriting it with one
+    // sentence about being "temporarily unavailable" turns a permanent gap
+    // into an outage and offers a retry that can only fail.
+    const said = typeof payload.error === 'object' ? payload.error?.message?.trim() : undefined;
+    const retryable =
+      typeof payload.error === 'object' ? payload.error?.retryable !== false : true;
     return new ChatRequestFailure(
-      'RockyGPT is temporarily unavailable. Please try again in a few minutes.',
-      requestId
+      said || 'RockyGPT is temporarily unavailable. Please try again in a few minutes.',
+      requestId,
+      retryable
     );
   }
   if (response.status >= 400 && response.status < 500) {
@@ -1143,8 +1161,19 @@ export default function Home() {
     }
   };
 
-  const startBulkSequence = async (questions: string[], delayMs: number) => {
-    if (questions.length === 0) return;
+  /**
+   * Runs the queue and reports what actually happened.
+   *
+   * The return value matters to the terminal remote: a run stopped from the
+   * panel used to leave the CLI printing the full queue length as if it had
+   * finished, which is the UI's decision being overruled by a caller that
+   * never heard about it.
+   */
+  const startBulkSequence = async (
+    questions: string[],
+    delayMs: number
+  ): Promise<BulkOutcome> => {
+    if (questions.length === 0) return { asked: 0, total: 0, stopped: false };
     setBulkQueue(questions);
     setBulkIndex(0);
     setIsBulkRunning(true);
@@ -1154,6 +1183,8 @@ export default function Home() {
     triggerHaptic('selection');
 
     const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    let asked = 0;
+    let reason: string | undefined;
 
     /** Blocks while paused. Returns false if the run was stopped meanwhile. */
     const settlePause = async () => {
@@ -1208,8 +1239,14 @@ export default function Home() {
     };
 
     for (let i = 0; i < questions.length; i++) {
-      if (!bulkRunningRef.current) break;
-      if (!(await settlePause())) break;
+      if (!bulkRunningRef.current) {
+        reason = 'stopped from the panel';
+        break;
+      }
+      if (!(await settlePause())) {
+        reason = 'stopped from the panel';
+        break;
+      }
 
       setIsBulkAwaitingIdle(true);
       const becameIdle = await waitForIdle();
@@ -1217,6 +1254,9 @@ export default function Home() {
       if (!becameIdle) {
         // Stopping is the user's own doing and needs no report; anything else
         // means the chat never freed up.
+        reason = bulkRunningRef.current
+          ? 'the chat never became available'
+          : 'stopped from the panel';
         if (bulkRunningRef.current) {
           reportEarlyStop('the chat never became available', questions.length - i);
         }
@@ -1229,10 +1269,15 @@ export default function Home() {
         // Refused rather than sent: stop instead of racing through the rest of
         // the queue asking nothing.
         reportEarlyStop('the chat refused the next question', questions.length - i);
+        reason = 'the chat refused the next question';
         break;
       }
+      asked += 1;
 
-      if (!bulkRunningRef.current) break;
+      if (!bulkRunningRef.current) {
+        reason = 'stopped from the panel';
+        break;
+      }
 
       // Delay between questions so the run is watchable. Paused time does not
       // count against it, otherwise resuming fires the next question instantly.
@@ -1254,6 +1299,7 @@ export default function Home() {
     setIsBulkRunning(false);
     setIsBulkPaused(false);
     setIsBulkAwaitingIdle(false);
+    return { asked, total: questions.length, stopped: asked < questions.length, reason };
   };
 
   const pauseBulkSequence = () => {
@@ -1319,8 +1365,14 @@ export default function Home() {
           });
           // The same object `Copy all JSON` puts on the clipboard, so what the
           // terminal prints and what the panel copies cannot drift apart.
+          // `ok` is false when the chat refused the question outright; a
+          // `Stop` press mid-answer instead leaves a message with no trace,
+          // because the trace only lands with a finished turn. Either way the
+          // terminal is told, rather than being shown a success it did not get.
+          const stopped = !ok || (!settled?.brainTrace && !settled?.isError);
           report(command.id, {
-            ok,
+            ok: ok && !stopped,
+            stopped,
             answer: settled?.content ?? null,
             turn: settled?.brainTrace
               ? turnPipeline(settled.debugPayload ?? { brainTrace: settled.brainTrace })
@@ -1328,8 +1380,8 @@ export default function Home() {
           });
         });
       } else if (command.type === 'bulk' && command.questions?.length) {
-        void startBulkSequence(command.questions, command.delayMs ?? 1500).then(() =>
-          report(command.id, { ok: true, asked: command.questions?.length ?? 0 })
+        void startBulkSequence(command.questions, command.delayMs ?? 1500).then((outcome) =>
+          report(command.id, { ok: !outcome.stopped, ...outcome })
         );
       } else if (command.type === 'clear') {
         setMessages([]);
