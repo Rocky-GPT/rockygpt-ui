@@ -28,8 +28,11 @@ export interface ChatResult {
   isError?: false;
   suggestedQuestions?: string[];
   brainTrace?: {
-    in: Record<string, unknown>;
-    out: Record<string, unknown>;
+    question: Record<string, unknown>;
+    context: Record<string, unknown>;
+    plan: Record<string, unknown>;
+    execution: Record<string, unknown>;
+    answer: Record<string, unknown>;
   };
   error?: { code: string; message: string; retryable: boolean };
 }

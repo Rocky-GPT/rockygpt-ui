@@ -104,8 +104,11 @@ interface UiAction {
 }
 
 interface BrainTrace {
-  in: Record<string, unknown>;
-  out: Record<string, unknown>;
+  question: Record<string, unknown>;
+  context: Record<string, unknown>;
+  plan: Record<string, unknown>;
+  execution: Record<string, unknown>;
+  answer: Record<string, unknown>;
 }
 
 interface ChatApiResponse {
@@ -1073,7 +1076,15 @@ export default function Home() {
   const copyBrainTraces = async () => {
     const turns = messages.flatMap((message) =>
       message.role === 'assistant' && message.brainTrace
-        ? [{ IN: message.brainTrace.in, OUT: message.brainTrace.out }]
+        ? [
+            {
+              QUESTION: message.brainTrace.question,
+              CONTEXT: message.brainTrace.context,
+              PLAN: message.brainTrace.plan,
+              EXECUTION: message.brainTrace.execution,
+              ANSWER: message.brainTrace.answer,
+            },
+          ]
         : []
     );
     try {
