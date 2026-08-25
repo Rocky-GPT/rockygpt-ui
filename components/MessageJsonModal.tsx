@@ -38,7 +38,7 @@ interface MessageJsonModalProps {
 /**
  * One box per stage of a turn, in the order the brain ran them. Reading down
  * the modal is reading the request: what was asked, what BRAIN #1 made of it,
- * what PYTHON did with that, and what BRAIN #2 wrote.
+ * what PYTHON did with that, and what BRAIN #3 wrote.
  *
  * The first box is the question and nothing else. The clock leads the BRAIN #1
  * box instead, because that is what the question was read against — and
@@ -58,13 +58,6 @@ const BOOKKEEPING = ['requestId', 'createdAt'] as const;
  * is what BRAIN #1 resolved `tomorrow` against.
  */
 const UNDRAWN_IN_MEMORY = [...BOOKKEEPING, 'currentTime', 'styleMode', 'responseMode'] as const;
-
-/**
- * `resolved` is part of the plan, so it belongs in the plan's payload — but it
- * has its own stage below, and drawing it twice makes a reader check whether
- * the two copies agree. Undrawn here, still in the copy.
- */
-const UNDRAWN_IN_UNDERSTAND = [...BOOKKEEPING, 'resolved'] as const;
 
 /** The modes the client asked for, as `label · value` for the header. */
 function modeChips(context: Record<string, unknown> | undefined): string[] {
@@ -155,24 +148,28 @@ const STAGES: ReadonlyArray<{
   // The first box is the plan minus the operation rather than a list of named
   // fields, so a rejected plan — which carries only `rejected` — still shows
   // its reason instead of coming out empty.
+  // Two brains, not two halves of one: understanding and planning are separate
+  // model calls, and the planning one is handed the resolved question with the
+  // conversation and the original wording withheld. Reading them apart is how
+  // you tell a question read wrongly from one planned wrongly.
   {
     key: 'understand',
     title: 'BRAIN #1 · understand',
-    hidden: UNDRAWN_IN_UNDERSTAND,
-    select: (p) => omitTopLevel(recordValue(p.plan) ?? {}, ['operation']),
+    select: (p) => present(recordValue(p.plan) ?? {}, PLAN_SUBJECT),
   },
-  {
-    key: 'operation',
-    title: 'BRAIN #1 · create plan',
-    // Only CODE has an operation to write. The other lanes are finished after
-    // understanding the question, so there is no stage here to draw.
-    select: (p) => recordValue(p.plan)?.operation ?? null,
-    omitWhenEmpty: true,
-  },
-  // Between the brains and the lane, because it is the last thing settled
-  // before anything runs. Absent whenever the question stood on its own, so a
-  // turn that needed no context does not carry an empty box saying so.
+  // Between the two brains, because it is the handoff itself: BRAIN #2 is
+  // given `resolvedQuestion` and nothing else, so this is the whole of what
+  // crosses. Absent when the question stood on its own — then what crossed was
+  // the question as asked, and the header already shows it.
   { key: 'context', title: 'CONTEXT · what this question uses', omitWhenEmpty: true },
+  {
+    // Never omitted. PYTHON acts on this and nothing else, so a turn without a
+    // plan section would be a turn with nothing to run — and for a lane whose
+    // plan is only its lane, an empty object is the honest thing to show.
+    key: 'operation',
+    title: 'BRAIN #2 · plan',
+    select: (p) => present(recordValue(p.plan) ?? {}, PLAN_ACTION),
+  },
   { key: 'execution', title: 'PYTHON · execute the lane' },
   // The memory is reference rather than pipeline: carried on every request
   // whether it matters or not, empty on a first turn and long on a tenth.
@@ -216,6 +213,28 @@ const STAGES: ReadonlyArray<{
  * its whole body is folded in exactly when that is what you need.
  */
 const CARRIED_ELSEWHERE = ['brainTrace', 'answer', 'question'] as const;
+
+/**
+ * The plan, split by what each half answers.
+ *
+ * `subject` is what kind of question this is and what it is about; `action` is
+ * what Rocky will do about it. Split that way every lane has both — the
+ * earlier split was `operation` against everything else, which is only a plan
+ * if the lane is CODE, and left every other lane with an empty second box
+ * while its real plan sat in the first.
+ */
+const PLAN_SUBJECT = ['lane', 'capability', 'rejected'] as const;
+const PLAN_ACTION = ['filters', 'operation', 'freshness', 'topic', 'query'] as const;
+
+/** The named fields that are actually there, in the order given. */
+function present(
+  record: Record<string, unknown>,
+  keys: readonly string[]
+): Record<string, unknown> {
+  return Object.fromEntries(
+    keys.filter((key) => record[key] !== undefined).map((key) => [key, record[key]])
+  );
+}
 
 /** The named fields, in the order given, as one object. */
 function pick(record: Record<string, unknown>, keys: readonly string[]): Record<string, unknown> {
@@ -426,7 +445,7 @@ export function MessageJsonModal({
               <div className="flex items-center gap-2">
                 <Sparkles className="h-3.5 w-3.5 shrink-0 text-sky-400" />
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-sky-300">
-                  BRAIN #2 · write the answer
+                  BRAIN #3 · translate
                 </span>
               </div>
               <p className="mt-2 max-h-32 overflow-auto text-sm leading-relaxed text-foreground">
