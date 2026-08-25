@@ -30,6 +30,7 @@ export interface ChatResult {
   brainTrace?: {
     question: Record<string, unknown>;
     memory: Record<string, unknown>;
+    understanding: Record<string, unknown>;
     context: Record<string, unknown>;
     plan: Record<string, unknown>;
     execution: Record<string, unknown>;

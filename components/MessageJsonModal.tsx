@@ -134,41 +134,46 @@ const STAGES: ReadonlyArray<{
    */
   omitWhenEmpty?: boolean;
   preview?: (data: unknown) => unknown;
-  hidden?: readonly string[];
+  /**
+   * Fields to leave undrawn. A function when what is worth drawing depends on
+   * the values — a field that merely repeats its neighbour is noise on the
+   * turns it repeats and the whole point on the turns it does not. Display
+   * only: `Copy all JSON` carries the trace whole either way.
+   */
+  hidden?: readonly string[] | ((data: unknown) => readonly string[]);
 }> = [
   // `question` and `answer` are both absent: they are the two payloads that
   // are prose rather than structure, and they bracket the modal as the header
   // and footer instead. What scrolls between them is the machinery, in the
   // order it ran, with the context it ran against beneath it.
-  // BRAIN #1 in two boxes, split on the two halves of its own job. What the
-  // question is about is one thought; what to do with the rows it matches is
-  // another, and reading them apart is how you tell a wrong subject from a
-  // wrong sort.
-  //
-  // The first box is the plan minus the operation rather than a list of named
-  // fields, so a rejected plan — which carries only `rejected` — still shows
-  // its reason instead of coming out empty.
-  // Two brains, not two halves of one: understanding and planning are separate
-  // model calls, and the planning one is handed the resolved question with the
-  // conversation and the original wording withheld. Reading them apart is how
-  // you tell a question read wrongly from one planned wrongly.
-  {
-    key: 'understand',
-    title: 'BRAIN #1 · understand',
-    select: (p) => present(recordValue(p.plan) ?? {}, PLAN_SUBJECT),
-  },
-  // Between the two brains, because it is the handoff itself: BRAIN #2 is
-  // given `resolvedQuestion` and nothing else, so this is the whole of what
-  // crosses. Absent when the question stood on its own — then what crossed was
-  // the question as asked, and the header already shows it.
+  // Context first: what the question drew on, before what BRAIN #1 made of
+  // it. Absent when BRAIN #1 says the question needed nothing.
   { key: 'context', title: 'CONTEXT · what this question uses', omitWhenEmpty: true },
+  // Each box below is one brain's own output. `lane` and `capability` sit with
+  // the plan because BRAIN #2 decides them — they were in the understand box
+  // while the split was cosmetic, which read as BRAIN #1 choosing the lane it
+  // is deliberately never shown enough to choose.
+  {
+    key: 'understanding',
+    title: 'BRAIN #1 · understand',
+    // `usesContext` is undrawn: the context box above appears exactly when it
+    // is true, so printing the flag as well says the same thing twice.
+    //
+    // `resolvedQuestion` goes the same way when it came back identical to
+    // `normalizedQuestion` — the usual case, where nothing needed resolving
+    // and the two lines are the same sentence printed twice. What is left is
+    // a box that shows a resolution exactly when there was one to show.
+    hidden: (data) => {
+      const read = data as { normalizedQuestion?: unknown; resolvedQuestion?: unknown } | null;
+      const echoed = read != null && read.resolvedQuestion === read.normalizedQuestion;
+      return [...BOOKKEEPING, 'usesContext', ...(echoed ? ['resolvedQuestion'] : [])];
+    },
+  },
   {
     // Never omitted. PYTHON acts on this and nothing else, so a turn without a
-    // plan section would be a turn with nothing to run — and for a lane whose
-    // plan is only its lane, an empty object is the honest thing to show.
-    key: 'operation',
+    // plan section would be a turn with nothing to run.
+    key: 'plan',
     title: 'BRAIN #2 · plan',
-    select: (p) => present(recordValue(p.plan) ?? {}, PLAN_ACTION),
   },
   { key: 'execution', title: 'PYTHON · execute the lane' },
   // The memory is reference rather than pipeline: carried on every request
@@ -213,28 +218,6 @@ const STAGES: ReadonlyArray<{
  * its whole body is folded in exactly when that is what you need.
  */
 const CARRIED_ELSEWHERE = ['brainTrace', 'answer', 'question'] as const;
-
-/**
- * The plan, split by what each half answers.
- *
- * `subject` is what kind of question this is and what it is about; `action` is
- * what Rocky will do about it. Split that way every lane has both — the
- * earlier split was `operation` against everything else, which is only a plan
- * if the lane is CODE, and left every other lane with an empty second box
- * while its real plan sat in the first.
- */
-const PLAN_SUBJECT = ['lane', 'capability', 'rejected'] as const;
-const PLAN_ACTION = ['filters', 'operation', 'freshness', 'topic', 'query'] as const;
-
-/** The named fields that are actually there, in the order given. */
-function present(
-  record: Record<string, unknown>,
-  keys: readonly string[]
-): Record<string, unknown> {
-  return Object.fromEntries(
-    keys.filter((key) => record[key] !== undefined).map((key) => [key, record[key]])
-  );
-}
 
 /** The named fields, in the order given, as one object. */
 function pick(record: Record<string, unknown>, keys: readonly string[]): Record<string, unknown> {
@@ -421,18 +404,21 @@ export function MessageJsonModal({
               // An object with no keys draws as `{}`, which reads as a stage
               // that ran and found nothing rather than one with nothing to do.
               return typeof drawn !== 'object' || Object.keys(drawn).length > 0;
-            }).map(({ key, title, select, preview, hidden, collapsed }, index) => (
+            }).map(({ key, title, select, preview, hidden, collapsed }, index) => {
+              const drawn = select ? select(pipeline) : (pipeline[key] ?? null);
+              return (
               <JsonViewer
                 key={key}
-                data={select ? select(pipeline) : (pipeline[key] ?? null)}
+                data={drawn}
                 title={title}
                 alwaysOpen={!collapsed}
-                hiddenKeys={hidden ?? BOOKKEEPING}
+                hiddenKeys={typeof hidden === 'function' ? hidden(drawn) : (hidden ?? BOOKKEEPING)}
                 previewTransform={preview}
                 hideCopy
                 className={index === 0 ? 'border-t-0' : undefined}
               />
-            ))}
+              );
+            })}
           </div>
 
           {/*
