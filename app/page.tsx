@@ -105,6 +105,7 @@ interface UiAction {
 
 interface BrainTrace {
   question: Record<string, unknown>;
+  memory: Record<string, unknown>;
   context: Record<string, unknown>;
   plan: Record<string, unknown>;
   execution: Record<string, unknown>;
