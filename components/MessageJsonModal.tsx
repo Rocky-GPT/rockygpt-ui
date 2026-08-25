@@ -16,7 +16,7 @@
 'use client';
 
 import { Check, MessageCircle, Sparkles } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAccessibleDialog } from '@/components/useAccessibleDialog';
 import { MODAL_OVERLAY, MODAL_PANEL_SHORT } from '@/components/modalShell';
 import { JsonViewer } from '@/components/JsonViewer';
@@ -30,6 +30,9 @@ interface MessageJsonModalProps {
   timestamp?: number;
   /** The response body as received, before the UI destructured it. */
   payload?: Record<string, unknown>;
+  /** Step to the neighbouring turn. Absent at either end of the transcript. */
+  onPrev?: () => void;
+  onNext?: () => void;
 }
 
 /**
@@ -54,12 +57,7 @@ const BOOKKEEPING = ['requestId', 'createdAt'] as const;
  * repeat them. All three stay in the copy — `currentTime` especially, since it
  * is what BRAIN #1 resolved `tomorrow` against.
  */
-const UNDRAWN_IN_CONTEXT = [
-  ...BOOKKEEPING,
-  'currentTime',
-  'styleMode',
-  'responseMode',
-] as const;
+const UNDRAWN_IN_CONTEXT = [...BOOKKEEPING, 'currentTime', 'styleMode', 'responseMode'] as const;
 
 /** The modes the client asked for, as `label · value` for the header. */
 function modeChips(context: Record<string, unknown> | undefined): string[] {
@@ -126,6 +124,8 @@ const STAGES: ReadonlyArray<{
   title: string;
   /** What this box draws. Defaults to the pipeline field named by `key`. */
   select?: (pipeline: Record<string, unknown>) => unknown;
+  /** Starts shut behind a View control instead of being permanently open. */
+  collapsed?: boolean;
   preview?: (data: unknown) => unknown;
   hidden?: readonly string[];
 }> = [
@@ -169,6 +169,10 @@ const STAGES: ReadonlyArray<{
     key: 'others',
     title: 'OTHERS · what else came back',
     select: (p) => pick(p, ['suggestedQuestions', 'citations', 'uiActions']),
+    // Shut by default. Nothing in here explains an answer — it is what the
+    // client does next — so it costs a screen of scrolling to say very little.
+    // The byte count on its header still shows without opening it.
+    collapsed: true,
   },
   // `answer` is deliberately absent: prose reads badly as a one-line JSON
   // string, so the last stage is the footer below instead. `Copy all JSON`
@@ -207,18 +211,61 @@ function recordValue(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
+/**
+ * One turn as a single object: the trace's stages, then every other field of
+ * the response.
+ *
+ * Exported because the transcript-wide copy builds the same thing for every
+ * message. Two copy paths that disagreed about the shape would be worse than
+ * one — whatever you paste should look the same whether it came from a turn or
+ * from the whole conversation.
+ */
+export function turnPipeline(
+  payload: Record<string, unknown> | undefined
+): Record<string, unknown> {
+  return {
+    ...(recordValue(payload?.brainTrace) ?? {}),
+    ...(payload ? omitTopLevel(payload, CARRIED_ELSEWHERE) : {}),
+  };
+}
+
 export function MessageJsonModal({
   isOpen,
   onClose,
   question,
+  requestId,
   payload,
+  onPrev,
+  onNext,
 }: MessageJsonModalProps) {
   const [copied, setCopied] = useState(false);
+  // Which way the last step went, so the incoming turn enters from the side
+  // you came from. Null on open, when there is no direction to imply.
+  const [came, setCame] = useState<'next' | 'prev' | null>(null);
   const handleClose = () => {
     setCopied(false);
+    setCame(null);
     onClose();
   };
   const dialogRef = useAccessibleDialog(isOpen, handleClose);
+
+  // Left and right step through the turns. The dialog hook claims Escape and
+  // Tab and leaves the arrows alone, so this can own them outright — nothing
+  // in the panel is a text field or a horizontally-scrolling focus target.
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      const forward = event.key === 'ArrowRight';
+      const step = forward ? onNext : event.key === 'ArrowLeft' ? onPrev : null;
+      if (!step) return;
+      event.preventDefault();
+      setCopied(false);
+      setCame(forward ? 'next' : 'prev');
+      step();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [isOpen, onPrev, onNext]);
 
   if (!isOpen) return null;
 
@@ -237,10 +284,7 @@ export function MessageJsonModal({
   // `citations` and `uiActions` are empty today — the brain hardcodes both to
   // `[]` — and showing them empty is the point: it is the difference between
   // "nothing was cited" and "citations are not wired up yet".
-  const pipeline: Record<string, unknown> = {
-    ...(trace ?? {}),
-    ...(payload ? omitTopLevel(payload, CARRIED_ELSEWHERE) : {}),
-  };
+  const pipeline = turnPipeline(payload);
   const chips = modeChips(context);
   const asked = recordValue(trace?.question)?.question;
   // The trace value is what the brain was actually sent; the prop is the UI's
@@ -267,86 +311,98 @@ export function MessageJsonModal({
         onClick={(event) => event.stopPropagation()}
       >
         {/*
+          Keyed on the turn so React rebuilds this subtree on every step, which
+          is what re-runs the entry animation. The dialog element itself stays
+          mounted — remounting it would drop the focus trap's ref.
+        */}
+        <div
+          key={requestId ?? 'turn'}
+          className={`flex min-h-0 flex-1 flex-col ${
+            came === 'next' ? 'turn-glide-next' : came === 'prev' ? 'turn-glide-prev' : ''
+          }`}
+        >
+          {/*
           The header is the copy target, not the whole card. Double-clicking
           inside a stage is how anyone selects a word in the JSON, and hijacking
           that would make the boxes unreadable.
         */}
-        <div
-          onDoubleClick={copyAll}
-          title="Double-click to copy this turn as JSON"
-          className="flex select-none items-start justify-between gap-4 border-b border-border px-5 py-4"
-        >
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <MessageCircle className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Question
-              </span>
-              {chips.map((chip) => (
-                <span
-                  key={chip}
-                  className="rounded-md border border-white/10 bg-neutral-900/90 px-1.5 py-0.5 font-mono text-[10px] text-neutral-400"
-                >
-                  {chip}
+          <div
+            onDoubleClick={copyAll}
+            title="Double-click to copy this turn as JSON"
+            className="flex select-none items-start justify-between gap-4 border-b border-border px-5 py-4"
+          >
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <MessageCircle className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Question
                 </span>
-              ))}
+                {chips.map((chip) => (
+                  <span
+                    key={chip}
+                    className="rounded-md border border-white/10 bg-neutral-900/90 px-1.5 py-0.5 font-mono text-[10px] text-neutral-400"
+                  >
+                    {chip}
+                  </span>
+                ))}
+              </div>
+              <h2 className="mt-1.5 text-base font-medium leading-snug text-foreground">
+                {questionText ?? 'Message JSON'}
+              </h2>
+              {clock ? (
+                <p className="mt-1.5 font-mono text-[11px] text-muted-foreground">{clock}</p>
+              ) : null}
             </div>
-            <h2 className="mt-1.5 text-base font-medium leading-snug text-foreground">
-              {questionText ?? 'Message JSON'}
-            </h2>
-            {clock ? (
-              <p className="mt-1.5 font-mono text-[11px] text-muted-foreground">{clock}</p>
-            ) : null}
-          </div>
-          {/*
+            {/*
             Nothing here until a copy happens. The affordance is the header's
             tooltip; this is only the confirmation, because a copy you cannot
             tell happened is a copy you do not trust.
           */}
-          {copied ? (
-            <span
-              aria-live="polite"
-              className="flex shrink-0 items-center gap-1.5 text-[11px] text-emerald-400"
-            >
-              <Check className="h-3 w-3" />
-              Copied
-            </span>
-          ) : null}
-        </div>
+            {copied ? (
+              <span
+                aria-live="polite"
+                className="flex shrink-0 items-center gap-1.5 text-[11px] text-emerald-400"
+              >
+                <Check className="h-3 w-3" />
+                Copied
+              </span>
+            ) : null}
+          </div>
 
-        <div className="min-h-0 flex-1 overflow-auto">
-          {STAGES.map(({ key, title, select, preview, hidden }, index) => (
-            <JsonViewer
-              key={key}
-              data={select ? select(pipeline) : (pipeline[key] ?? null)}
-              title={title}
-              alwaysOpen
-              hiddenKeys={hidden ?? BOOKKEEPING}
-              previewTransform={preview}
-              hideCopy
-              className={index === 0 ? 'border-t-0' : undefined}
-            />
-          ))}
-        </div>
+          <div className="min-h-0 flex-1 overflow-auto">
+            {STAGES.map(({ key, title, select, preview, hidden, collapsed }, index) => (
+              <JsonViewer
+                key={key}
+                data={select ? select(pipeline) : (pipeline[key] ?? null)}
+                title={title}
+                alwaysOpen={!collapsed}
+                hiddenKeys={hidden ?? BOOKKEEPING}
+                previewTransform={preview}
+                hideCopy
+                className={index === 0 ? 'border-t-0' : undefined}
+              />
+            ))}
+          </div>
 
-        {/*
+          {/*
           The last stage, pinned rather than scrolled. It is the one payload
           that is prose, and it stays in view while the stages above it are
           read — which is the comparison anyone has this open to make.
         */}
-        {answerText ? (
-          <div className="shrink-0 border-t border-border bg-neutral-950/80 px-5 py-3.5">
-            <div className="flex items-center gap-2">
-              <Sparkles className="h-3.5 w-3.5 shrink-0 text-sky-400" />
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-sky-300">
-                BRAIN #2 · write the answer
-              </span>
+          {answerText ? (
+            <div className="shrink-0 border-t border-border bg-neutral-950/80 px-5 py-3.5">
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-3.5 w-3.5 shrink-0 text-sky-400" />
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-sky-300">
+                  BRAIN #2 · write the answer
+                </span>
+              </div>
+              <p className="mt-2 max-h-32 overflow-auto text-sm leading-relaxed text-foreground">
+                {answerText}
+              </p>
             </div>
-            <p className="mt-2 max-h-32 overflow-auto text-sm leading-relaxed text-foreground">
-              {answerText}
-            </p>
-          </div>
-        ) : null}
+          ) : null}
+        </div>
       </div>
     </div>
   );

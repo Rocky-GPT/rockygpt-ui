@@ -3,7 +3,7 @@ import {
   askBrain,
   BrainUnreachableError,
   detectQuestionOrigin,
-  MAX_HISTORY_TURNS,
+  MAX_HISTORY_MESSAGES,
   MAX_MESSAGE_LENGTH,
   type ChatRequest,
   type ChatTurnV2,
@@ -71,8 +71,8 @@ function readHistory(value: unknown): ChatTurnV2[] {
   if (!Array.isArray(value)) {
     throw new RequestValidationError('history must be an array');
   }
-  if (value.length > MAX_HISTORY_TURNS) {
-    throw new RequestValidationError(`history may contain at most ${MAX_HISTORY_TURNS} turns`);
+  if (value.length > MAX_HISTORY_MESSAGES) {
+    throw new RequestValidationError(`history may contain at most ${MAX_HISTORY_MESSAGES} turns`);
   }
 
   return value.map((turn, index) => {
