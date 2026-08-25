@@ -29,6 +29,7 @@ export interface ChatResult {
   suggestedQuestions?: string[];
   brainTrace?: {
     question: Record<string, unknown>;
+    memory: Record<string, unknown>;
     context: Record<string, unknown>;
     plan: Record<string, unknown>;
     execution: Record<string, unknown>;

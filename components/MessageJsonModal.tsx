@@ -53,11 +53,18 @@ interface MessageJsonModalProps {
 const BOOKKEEPING = ['requestId', 'createdAt'] as const;
 
 /**
- * The clock and the modes ride in the header, so the context box does not
+ * The clock and the modes ride in the header, so the memory box does not
  * repeat them. All three stay in the copy — `currentTime` especially, since it
  * is what BRAIN #1 resolved `tomorrow` against.
  */
-const UNDRAWN_IN_CONTEXT = [...BOOKKEEPING, 'currentTime', 'styleMode', 'responseMode'] as const;
+const UNDRAWN_IN_MEMORY = [...BOOKKEEPING, 'currentTime', 'styleMode', 'responseMode'] as const;
+
+/**
+ * `resolved` is part of the plan, so it belongs in the plan's payload — but it
+ * has its own stage below, and drawing it twice makes a reader check whether
+ * the two copies agree. Undrawn here, still in the copy.
+ */
+const UNDRAWN_IN_UNDERSTAND = [...BOOKKEEPING, 'resolved'] as const;
 
 /** The modes the client asked for, as `label · value` for the header. */
 function modeChips(context: Record<string, unknown> | undefined): string[] {
@@ -151,6 +158,7 @@ const STAGES: ReadonlyArray<{
   {
     key: 'understand',
     title: 'BRAIN #1 · understand',
+    hidden: UNDRAWN_IN_UNDERSTAND,
     select: (p) => omitTopLevel(recordValue(p.plan) ?? {}, ['operation']),
   },
   {
@@ -161,18 +169,21 @@ const STAGES: ReadonlyArray<{
     select: (p) => recordValue(p.plan)?.operation ?? null,
     omitWhenEmpty: true,
   },
+  // Between the brains and the lane, because it is the last thing settled
+  // before anything runs. Absent whenever the question stood on its own, so a
+  // turn that needed no context does not carry an empty box saying so.
+  { key: 'context', title: 'CONTEXT · what this question uses', omitWhenEmpty: true },
   { key: 'execution', title: 'PYTHON · execute the lane' },
-  // Context comes last on purpose. The pipeline is what anyone opens this to
-  // read; the material it was read against is reference, checked when a stage
-  // above looks wrong. Leading with it pushed the actual work below the fold.
+  // The memory is reference rather than pipeline: carried on every request
+  // whether it matters or not, empty on a first turn and long on a tenth.
   {
-    key: 'context',
-    title: 'CONTEXT · what the turn was read against',
+    key: 'memory',
+    title: 'MEMORY · short term',
     preview: asExchanges,
-    hidden: UNDRAWN_IN_CONTEXT,
-    // Shut by default too. With the clock and the modes in the header this is
-    // the conversation and nothing else, which is empty on a first turn and
-    // long on a tenth — either way it is reference, not the pipeline.
+    hidden: UNDRAWN_IN_MEMORY,
+    // Shut by default. With the clock and the modes in the header this is the
+    // conversation and nothing else — empty on a first turn, long on a tenth,
+    // and reference either way rather than part of the pipeline.
     collapsed: true,
   },
   // One box, not three. These are what the turn returned alongside the answer,
@@ -284,12 +295,12 @@ export function MessageJsonModal({
   if (!isOpen) return null;
 
   const trace = recordValue(payload?.brainTrace);
-  const context = recordValue(trace?.context);
+  const memory = recordValue(trace?.memory);
   // The server's clock, not the browser's. It is what both brains were handed
   // and what every time word in the plan resolved against; the browser's own
   // timestamp is a different clock measuring a different moment, and showing
   // it here only invited the two to be mistaken for each other.
-  const clock = typeof context?.currentTime === 'string' ? context.currentTime : null;
+  const clock = typeof memory?.currentTime === 'string' ? memory.currentTime : null;
   // The turn, as one object: the trace's stages, then every other field of the
   // response. The suggestions, citations and UI actions are produced by this
   // turn and only happen to live at the response's top level, so they read as
@@ -299,7 +310,7 @@ export function MessageJsonModal({
   // `[]` — and showing them empty is the point: it is the difference between
   // "nothing was cited" and "citations are not wired up yet".
   const pipeline = turnPipeline(payload);
-  const chips = modeChips(context);
+  const chips = modeChips(memory);
   const asked = recordValue(trace?.question)?.question;
   // The trace value is what the brain was actually sent; the prop is the UI's
   // own copy, and only stands in on an error turn that never parsed a body.
@@ -384,10 +395,14 @@ export function MessageJsonModal({
           </div>
 
           <div className="min-h-0 flex-1 overflow-auto">
-            {STAGES.filter(
-              ({ select, omitWhenEmpty }) =>
-                !omitWhenEmpty || (select ? select(pipeline) : null) != null
-            ).map(({ key, title, select, preview, hidden, collapsed }, index) => (
+            {STAGES.filter(({ key, select, omitWhenEmpty }) => {
+              if (!omitWhenEmpty) return true;
+              const drawn = select ? select(pipeline) : pipeline[key];
+              if (drawn == null) return false;
+              // An object with no keys draws as `{}`, which reads as a stage
+              // that ran and found nothing rather than one with nothing to do.
+              return typeof drawn !== 'object' || Object.keys(drawn).length > 0;
+            }).map(({ key, title, select, preview, hidden, collapsed }, index) => (
               <JsonViewer
                 key={key}
                 data={select ? select(pipeline) : (pipeline[key] ?? null)}
