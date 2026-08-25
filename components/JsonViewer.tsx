@@ -22,6 +22,25 @@ interface JsonViewerProps {
   className?: string;
   chips?: React.ReactNode;
   actions?: React.ReactNode;
+  /**
+   * Keys dropped from the preview at any depth. Bookkeeping that is true but
+   * not what anyone is reading for — ids, timestamps — costs a line each and
+   * pushes the payload off screen. Copy and download keep them, so what leaves
+   * this component is always the whole record.
+   */
+  hiddenKeys?: readonly string[];
+  /**
+   * Reshapes the payload for display only. Use it where the wire shape is
+   * right for a machine and wrong for a reader; copy and download keep the
+   * shape the brain actually sent.
+   */
+  previewTransform?: (data: unknown) => unknown;
+  /**
+   * Drops this box's own copy control. For a stack of boxes that are parts of
+   * one thing, a copy button per box is a choice nobody wants to make — the
+   * copy belongs to the whole, once, above them.
+   */
+  hideCopy?: boolean;
 }
 
 /**
@@ -68,6 +87,38 @@ function highlightJson(json: string): string {
   });
 }
 
+/**
+ * Drops the outermost `{` and `}` and the level of indent they impose.
+ *
+ * Every payload this component shows is wrapped in the same braces, so they
+ * carry no information and cost two lines plus an indent on every box. Without
+ * them the fields sit flush left, which is what a reader scans for.
+ *
+ * Objects only — an array's brackets say which shape it is, so they stay. What
+ * leaves the component by copy or download keeps the wrapper and stays valid
+ * JSON; this affects the preview alone.
+ */
+function unwrapOuterObject(json: string): string {
+  if (!json.startsWith('{\n') || !json.endsWith('\n}')) return json;
+  return json
+    .slice(2, -2)
+    .split('\n')
+    .map((line) => (line.startsWith('  ') ? line.slice(2) : line))
+    .join('\n');
+}
+
+function withoutKeys(value: unknown, hidden: readonly string[]): unknown {
+  if (Array.isArray(value)) return value.map((item) => withoutKeys(item, hidden));
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([key]) => !hidden.includes(key))
+        .map(([key, item]) => [key, withoutKeys(item, hidden)])
+    );
+  }
+  return value;
+}
+
 function formatByteSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   return `${(bytes / 1024).toFixed(1)} KB`;
@@ -82,14 +133,24 @@ export function JsonViewer({
   className = '',
   chips,
   actions,
+  hiddenKeys = [],
+  previewTransform,
+  hideCopy = false,
 }: JsonViewerProps) {
   const [isExpanded, setIsExpanded] = useState(initialExpanded);
   const isOpen = alwaysOpen || isExpanded;
   const setIsOpen = setIsExpanded;
   const [copied, setCopied] = useState(false);
 
+  // `jsonString` is the whole record — copied, downloaded, and measured.
+  // `preview` is only what is drawn: reshaped, then stripped, then unwrapped.
   const jsonString = JSON.stringify(data, null, 2);
-  const lines = jsonString.split('\n');
+  const shaped = previewTransform ? previewTransform(data) : data;
+  const visible = hiddenKeys.length ? withoutKeys(shaped, hiddenKeys) : shaped;
+  const preview = unwrapOuterObject(
+    visible === data ? jsonString : JSON.stringify(visible, null, 2)
+  );
+  const lines = preview.split('\n');
   const byteSize = new Blob([jsonString]).size;
 
   const handleCopy = (e: React.MouseEvent) => {
@@ -139,7 +200,7 @@ export function JsonViewer({
         <div className="flex items-center gap-2">
           {actions}
 
-          {downloadFileName ? (
+          {hideCopy ? null : downloadFileName ? (
             <button
               type="button"
               onClick={handleDownload}
@@ -197,7 +258,7 @@ export function JsonViewer({
             {/* Highlighted code */}
             <pre
               className="flex-1 overflow-x-auto text-xs leading-relaxed"
-              dangerouslySetInnerHTML={{ __html: highlightJson(jsonString) }}
+              dangerouslySetInnerHTML={{ __html: highlightJson(preview) }}
             />
           </div>
         </div>
