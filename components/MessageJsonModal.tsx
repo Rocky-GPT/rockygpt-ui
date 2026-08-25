@@ -124,8 +124,8 @@ function asExchanges(data: unknown): unknown {
 const STAGES: ReadonlyArray<{
   key: string;
   title: string;
-  /** When set, the box is these pipeline fields gathered into one object. */
-  keys?: readonly string[];
+  /** What this box draws. Defaults to the pipeline field named by `key`. */
+  select?: (pipeline: Record<string, unknown>) => unknown;
   preview?: (data: unknown) => unknown;
   hidden?: readonly string[];
 }> = [
@@ -133,7 +133,24 @@ const STAGES: ReadonlyArray<{
   // are prose rather than structure, and they bracket the modal as the header
   // and footer instead. What scrolls between them is the machinery, in the
   // order it ran, with the context it ran against beneath it.
-  { key: 'plan', title: 'BRAIN #1 · understand + create plan' },
+  // BRAIN #1 in two boxes, split on the two halves of its own job. What the
+  // question is about is one thought; what to do with the rows it matches is
+  // another, and reading them apart is how you tell a wrong subject from a
+  // wrong sort.
+  //
+  // The first box is the plan minus the operation rather than a list of named
+  // fields, so a rejected plan — which carries only `rejected` — still shows
+  // its reason instead of coming out empty.
+  {
+    key: 'understand',
+    title: 'BRAIN #1 · understand',
+    select: (p) => omitTopLevel(recordValue(p.plan) ?? {}, ['operation']),
+  },
+  {
+    key: 'operation',
+    title: 'BRAIN #1 · create plan',
+    select: (p) => recordValue(p.plan)?.operation ?? null,
+  },
   { key: 'execution', title: 'PYTHON · execute the lane' },
   // Context comes last on purpose. The pipeline is what anyone opens this to
   // read; the material it was read against is reference, checked when a stage
@@ -151,7 +168,7 @@ const STAGES: ReadonlyArray<{
   {
     key: 'others',
     title: 'OTHERS · what else came back',
-    keys: ['suggestedQuestions', 'citations', 'uiActions'],
+    select: (p) => pick(p, ['suggestedQuestions', 'citations', 'uiActions']),
   },
   // `answer` is deliberately absent: prose reads badly as a one-line JSON
   // string, so the last stage is the footer below instead. `Copy all JSON`
@@ -298,10 +315,10 @@ export function MessageJsonModal({
         </div>
 
         <div className="min-h-0 flex-1 overflow-auto">
-          {STAGES.map(({ key, title, keys, preview, hidden }, index) => (
+          {STAGES.map(({ key, title, select, preview, hidden }, index) => (
             <JsonViewer
               key={key}
-              data={keys ? pick(pipeline, keys) : (pipeline[key] ?? null)}
+              data={select ? select(pipeline) : (pipeline[key] ?? null)}
               title={title}
               alwaysOpen
               hiddenKeys={hidden ?? BOOKKEEPING}
