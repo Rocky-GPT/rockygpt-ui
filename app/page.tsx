@@ -763,6 +763,12 @@ export default function Home() {
 
   // Bulk Questions Runner state (Dev Mode only)
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
+  // Set when the runner is opened on the live conversation rather than on the
+  // saved set. Null is "show what was saved".
+  const [bulkPrefill, setBulkPrefill] = useState<string | null>(null);
+  // A double-click fires click first, so the single-click action waits long
+  // enough to be cancelled by the second.
+  const bulkClickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [bulkQueue, setBulkQueue] = useState<string[]>([]);
   const [bulkIndex, setBulkIndex] = useState(0);
   const [isBulkRunning, setIsBulkRunning] = useState(false);
@@ -2048,9 +2054,23 @@ export default function Home() {
           {isDevViewActive && !isBulkRunning && (
             <button
               type="button"
-              onClick={() => setIsBulkModalOpen(true)}
+              onClick={() => {
+                if (bulkClickTimer.current) clearTimeout(bulkClickTimer.current);
+                bulkClickTimer.current = setTimeout(() => {
+                  setBulkPrefill(null);
+                  setIsBulkModalOpen(true);
+                }, 220);
+              }}
+              onDoubleClick={() => {
+                if (bulkClickTimer.current) clearTimeout(bulkClickTimer.current);
+                const asked = messages
+                  .filter((message) => message.role === 'user' && message.content.trim())
+                  .map((message) => message.content.trim());
+                setBulkPrefill(asked.join('\n'));
+                setIsBulkModalOpen(true);
+              }}
               aria-label="Bulk Questions Runner"
-              title="Paste bulk questions to run sequentially"
+              title="Click to run the saved set; double-click to load this conversation"
               className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-muted text-muted-foreground transition-colors hover:border-amber-500/40 hover:bg-amber-500/10 hover:text-amber-300 cursor-pointer"
             >
               <Layers aria-hidden="true" className="h-5 w-5" />
@@ -2116,6 +2136,7 @@ export default function Home() {
         isOpen={isBulkModalOpen}
         onClose={() => setIsBulkModalOpen(false)}
         onStartSequence={startBulkSequence}
+        prefill={bulkPrefill}
       />
       {(() => {
         // Resolved at render so a message updated after the panel opened

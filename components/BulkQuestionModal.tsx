@@ -8,22 +8,21 @@
 
 import { useEffect, useState } from 'react';
 import { useAccessibleDialog } from '@/components/useAccessibleDialog';
-import {
-  X,
-  Play,
-  Trash2,
-  Sparkles,
-  Layers,
-  Clock,
-  CheckCircle2,
-} from 'lucide-react';
+import { CheckCircle2, ChevronDown, Clock, Layers, Play, Sparkles, Trash2, X } from 'lucide-react';
 import { MODAL_OVERLAY } from '@/components/modalShell';
 import capabilityTestQuestions from '@/lib/capability-test-questions.json';
+import shortRunQuestions from '@/lib/short-run-questions.json';
 
 interface BulkQuestionModalProps {
   isOpen: boolean;
   onClose: () => void;
   onStartSequence: (questions: string[], delayMs: number) => void;
+  /**
+   * Questions to load instead of the saved set. Not written back to storage —
+   * a conversation loaded to re-run should not silently replace the list
+   * someone has been curating.
+   */
+  prefill?: string | null;
 }
 
 /**
@@ -34,7 +33,17 @@ interface BulkQuestionModalProps {
  * "where was the registrar again" only mean anything in sequence. The runner
  * sends them in order, so the order in the file is the test.
  */
-const SAMPLE_QUESTIONS: string[] = capabilityTestQuestions;
+/**
+ * The sample sets the runner can load, in the order they are offered.
+ *
+ * Adding one is adding an entry — a label and the file its questions live in.
+ * Each set is its own ordered conversation, so the follow-ups inside it ("what
+ * room did you tell me earlier") have something to refer back to.
+ */
+const SAMPLE_SETS: ReadonlyArray<{ id: string; label: string; questions: string[] }> = [
+  { id: 'full', label: 'Capability suite', questions: capabilityTestQuestions },
+  { id: 'short', label: 'Short run', questions: shortRunQuestions },
+];
 const QUESTIONS_STORAGE_KEY = 'rockygpt_bulk_questions';
 
 const DELAY_OPTIONS = [
@@ -48,8 +57,10 @@ export function BulkQuestionModal({
   isOpen,
   onClose,
   onStartSequence,
+  prefill,
 }: BulkQuestionModalProps) {
   const [text, setText] = useState('');
+  const [pickingSample, setPickingSample] = useState(false);
   const [delayMs, setDelayMs] = useState(1500);
   const dialogRef = useAccessibleDialog(isOpen, onClose);
 
@@ -61,6 +72,11 @@ export function BulkQuestionModal({
       // Keep the runner usable when browser storage is unavailable.
     }
   }, []);
+
+  // A prefill wins over whatever was restored, for as long as it is supplied.
+  useEffect(() => {
+    if (isOpen && prefill) setText(prefill);
+  }, [isOpen, prefill]);
 
   const updateText = (value: string) => {
     setText(value);
@@ -88,8 +104,9 @@ export function BulkQuestionModal({
     onClose();
   };
 
-  const handleLoadSample = () => {
-    updateText(SAMPLE_QUESTIONS.join('\n'));
+  const loadSample = (questions: string[]) => {
+    updateText(questions.join('\n'));
+    setPickingSample(false);
   };
 
   const handleClear = () => {
@@ -144,14 +161,43 @@ export function BulkQuestionModal({
               Questions (1 per line)
             </label>
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleLoadSample}
-                className="flex items-center gap-1 text-xs text-sky-400 hover:text-sky-300 transition-colors font-medium"
-              >
-                <Sparkles className="h-3.5 w-3.5" />
-                Load Sample
-              </button>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setPickingSample((open) => !open)}
+                  aria-expanded={pickingSample}
+                  aria-haspopup="menu"
+                  className="flex items-center gap-1 text-xs text-sky-400 hover:text-sky-300 transition-colors font-medium"
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  Load Sample
+                  <ChevronDown
+                    aria-hidden="true"
+                    className={`h-3 w-3 transition-transform ${pickingSample ? 'rotate-180' : ''}`}
+                  />
+                </button>
+                {pickingSample && (
+                  <div
+                    role="menu"
+                    className="absolute left-0 top-full z-10 mt-1.5 min-w-44 overflow-hidden rounded-lg border border-white/10 bg-neutral-900 shadow-xl"
+                  >
+                    {SAMPLE_SETS.map((set) => (
+                      <button
+                        key={set.id}
+                        type="button"
+                        role="menuitem"
+                        onClick={() => loadSample(set.questions)}
+                        className="flex w-full items-center justify-between gap-4 px-3 py-2 text-left text-xs text-neutral-300 transition-colors hover:bg-white/5 hover:text-white"
+                      >
+                        <span>{set.label}</span>
+                        <span className="font-mono text-[11px] text-neutral-500">
+                          {set.questions.length}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               {text && (
                 <>
                   <span className="text-muted-foreground/40 text-xs">•</span>
@@ -225,9 +271,7 @@ export function BulkQuestionModal({
 
           {parsedQuestions.length > 0 && (
             <div className="space-y-1.5">
-              <span className="text-[11px] font-medium text-muted-foreground">
-                Preview Order:
-              </span>
+              <span className="text-[11px] font-medium text-muted-foreground">Preview Order:</span>
               <div className="max-h-28 overflow-y-auto rounded-lg border border-border/50 bg-muted/30 p-2 space-y-1">
                 {parsedQuestions.map((q, idx) => (
                   <div
