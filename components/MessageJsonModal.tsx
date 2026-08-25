@@ -160,6 +160,10 @@ const STAGES: ReadonlyArray<{
     title: 'CONTEXT · what the turn was read against',
     preview: asExchanges,
     hidden: UNDRAWN_IN_CONTEXT,
+    // Shut by default too. With the clock and the modes in the header this is
+    // the conversation and nothing else, which is empty on a first turn and
+    // long on a tenth — either way it is reference, not the pipeline.
+    collapsed: true,
   },
   // One box, not three. These are what the turn returned alongside the answer,
   // and two of them are `[]` on every turn today — three headers to say so was
