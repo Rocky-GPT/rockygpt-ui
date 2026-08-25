@@ -60,10 +60,10 @@ import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { bindGlobalTapHaptics, destroyHaptics, triggerHaptic } from '@/lib/haptics';
-import { MAX_MESSAGE_LENGTH, type ChatTurnV2 } from '@/lib/brain-api';
+import { MAX_HISTORY_MESSAGES, MAX_MESSAGE_LENGTH, type ChatTurnV2 } from '@/lib/brain-api';
 import { rockyModeCommandForMessage } from '../chat/rocky-mode';
 import { DevPageMenu } from '@/components/DevPageMenu';
-import { MessageJsonModal } from '@/components/MessageJsonModal';
+import { MessageJsonModal, turnPipeline } from '@/components/MessageJsonModal';
 
 interface ChatMessage {
   id: string;
@@ -144,7 +144,6 @@ class ChatRequestFailure extends Error {
 
 // Active during local development (`npm run dev`) for instant inspection; automatically hidden in production builds
 const IS_DEVELOPMENT = process.env.NODE_ENV === 'development';
-const MAX_HISTORY_TURNS = 10;
 const MAX_HISTORY_TURN_LENGTH = 2000;
 const ANSWER_REVEAL_INTERVAL_MS = 20;
 // How long a bulk run tolerates a loading flag with no request behind it.
@@ -514,7 +513,7 @@ function getOrCreateConversationId(): string {
 function buildRequestHistory(messages: ChatMessage[]): ChatTurnV2[] {
   const history: ChatTurnV2[] = [];
 
-  for (let index = messages.length - 1; index >= 0 && history.length < MAX_HISTORY_TURNS; index--) {
+  for (let index = messages.length - 1; index >= 0 && history.length < MAX_HISTORY_MESSAGES; index--) {
     const message = messages[index];
     if (message.isError) continue;
     const content = message.content.trim();
@@ -1075,16 +1074,10 @@ export default function Home() {
   /** Copy every completed brain trace (model call in, model call out) in chat order. */
   const copyBrainTraces = async () => {
     const turns = messages.flatMap((message) =>
+      // The same object the per-message inspector copies, so a transcript and
+      // a single turn paste in the same shape.
       message.role === 'assistant' && message.brainTrace
-        ? [
-            {
-              QUESTION: message.brainTrace.question,
-              CONTEXT: message.brainTrace.context,
-              PLAN: message.brainTrace.plan,
-              EXECUTION: message.brainTrace.execution,
-              ANSWER: message.brainTrace.answer,
-            },
-          ]
+        ? [turnPipeline(message.debugPayload ?? { brainTrace: message.brainTrace })]
         : []
     );
     try {
@@ -2130,6 +2123,11 @@ export default function Home() {
         const jsonMessage = jsonMessageId
           ? messages.find((msg) => msg.id === jsonMessageId)
           : undefined;
+        // The turns the panel can show, in transcript order, so the arrow keys
+        // step over answers and skip the questions and errors between them.
+        const inspectable = messages.filter((msg) => msg.role === 'assistant' && msg.brainTrace);
+        const at = inspectable.findIndex((msg) => msg.id === jsonMessageId);
+        const step = (to: number) => () => setJsonMessageId(inspectable[to].id);
         return (
           <MessageJsonModal
             isOpen={isDevViewActive && !!jsonMessage}
@@ -2138,6 +2136,8 @@ export default function Home() {
             requestId={jsonMessage?.requestId}
             timestamp={jsonMessage?.timestamp}
             payload={jsonMessage?.debugPayload}
+            onPrev={at > 0 ? step(at - 1) : undefined}
+            onNext={at >= 0 && at < inspectable.length - 1 ? step(at + 1) : undefined}
           />
         );
       })()}

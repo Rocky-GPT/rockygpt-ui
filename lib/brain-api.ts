@@ -43,7 +43,16 @@ export interface ClientAbuseIdentity {
 }
 
 export const MAX_MESSAGE_LENGTH = 2_000;
-export const MAX_HISTORY_TURNS = 10;
+/**
+ * How much of the conversation travels with a question, counted in exchanges —
+ * a question and the answer to it. That is the unit worth reasoning about; the
+ * wire carries one entry per speaker, hence the doubling below.
+ *
+ * The brain's own memory keeps the same depth, so a client that sends history
+ * and one that omits it see the same distance back.
+ */
+export const MAX_HISTORY_EXCHANGES = 10;
+export const MAX_HISTORY_MESSAGES = MAX_HISTORY_EXCHANGES * 2;
 
 export class BrainUnreachableError extends Error {
   constructor(cause: unknown) {
