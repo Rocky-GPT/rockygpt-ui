@@ -1277,6 +1277,68 @@ export default function Home() {
     triggerHaptic('warning');
   };
 
+  // Terminal remote control (Dev View only).
+  //
+  // Commands run through the page rather than around it — a remote `ask` calls
+  // the same `sendMessage` a keystroke does — so what the terminal drives is
+  // what a student would have got, and it is visible in the tab while it runs.
+  useEffect(() => {
+    if (!isDevViewActive) return;
+    const source = new EventSource('/api/remote');
+
+    const report = (id: string, value: unknown) =>
+      fetch('/api/remote', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resultFor: id, value }),
+      }).catch(() => undefined);
+
+    source.onmessage = (event) => {
+      const command = JSON.parse(event.data) as {
+        id: string;
+        type: string;
+        text?: string;
+        questions?: string[];
+        delayMs?: number;
+      };
+      if (command.type === 'ask' && command.text) {
+        void sendMessage(command.text).then(async (ok) => {
+          // `sendMessage` resolves while the answer is still being revealed a
+          // character at a time, so the message it leaves behind is half
+          // written and has no trace yet. Wait for the trace to land — it
+          // arrives with the finished content — and give up rather than hang
+          // on an error turn, which never gets one.
+          const settled = await new Promise<ChatMessage | undefined>((resolve) => {
+            const deadline = Date.now() + 20_000;
+            const poll = () => {
+              const last = messagesRef.current[messagesRef.current.length - 1];
+              if (last?.brainTrace || Date.now() > deadline) resolve(last);
+              else setTimeout(poll, 100);
+            };
+            poll();
+          });
+          report(command.id, {
+            ok,
+            answer: settled?.content ?? null,
+            trace: settled?.brainTrace ?? null,
+          });
+        });
+      } else if (command.type === 'bulk' && command.questions?.length) {
+        void startBulkSequence(command.questions, command.delayMs ?? 1500).then(() =>
+          report(command.id, { ok: true, asked: command.questions?.length ?? 0 })
+        );
+      } else if (command.type === 'clear') {
+        setMessages([]);
+        report(command.id, { ok: true });
+      }
+    };
+    return () => source.close();
+    // `sendMessage` and `startBulkSequence` are redefined every render; binding
+    // the listener to them would tear the stream down and rebuild it on every
+    // keystroke, so the effect deliberately depends only on the dev flag.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDevViewActive]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     // On a phone the on-screen keyboard covers the answer, so sending dismisses
