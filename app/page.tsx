@@ -1317,10 +1317,14 @@ export default function Home() {
             };
             poll();
           });
+          // The same object `Copy all JSON` puts on the clipboard, so what the
+          // terminal prints and what the panel copies cannot drift apart.
           report(command.id, {
             ok,
             answer: settled?.content ?? null,
-            trace: settled?.brainTrace ?? null,
+            turn: settled?.brainTrace
+              ? turnPipeline(settled.debugPayload ?? { brainTrace: settled.brainTrace })
+              : null,
           });
         });
       } else if (command.type === 'bulk' && command.questions?.length) {
