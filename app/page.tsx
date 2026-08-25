@@ -1069,7 +1069,7 @@ export default function Home() {
     return true;
   };
 
-  /** Copy every completed AI #1 intent and Python result boundary in chat order. */
+  /** Copy every completed brain trace (model call in, model call out) in chat order. */
   const copyBrainTraces = async () => {
     const turns = messages.flatMap((message) =>
       message.role === 'assistant' && message.brainTrace
