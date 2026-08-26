@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   Bot,
+  Boxes,
   ChartNoAxesCombined,
   ChevronDown,
   Database,
@@ -25,6 +26,12 @@ const PAGES = [
     label: 'Data Explorer',
     description: 'Browse campus records and releases',
     icon: ChartNoAxesCombined,
+  },
+  {
+    href: '/capability-explorer',
+    label: 'Capability Explorer',
+    description: 'What Rocky can look up, and how',
+    icon: Boxes,
   },
   {
     href: '/logs',
