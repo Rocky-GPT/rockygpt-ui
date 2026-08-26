@@ -119,6 +119,31 @@ function asExchanges(data: unknown): unknown {
   return { ...record, earlierTurns: pairTurns(record.earlierTurns) };
 }
 
+/**
+ * The routing answers, as marks rather than words.
+ *
+ * Only for the eye. The brain sends `Yes` and `No`, which is what the copied
+ * JSON, the admin log and the terminal all keep — a tick is quicker to scan
+ * down a column but is a poor thing to grep for, and it is two columns wide in
+ * a terminal that assumed one.
+ */
+const MARK: Record<string, string> = { Yes: '✅', No: '❌' };
+
+function withMarkedRouting(plan: unknown): unknown {
+  if (!isRecord(plan) || !isRecord(plan.routing)) return plan;
+  const routing = Object.fromEntries(
+    Object.entries(plan.routing).map(([key, value]) => [
+      key,
+      typeof value === 'string' && value in MARK ? MARK[value] : value,
+    ]),
+  );
+  return { ...plan, routing };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 const STAGES: ReadonlyArray<{
   key: string;
   title: string;
@@ -174,6 +199,7 @@ const STAGES: ReadonlyArray<{
     // plan section would be a turn with nothing to run.
     key: 'plan',
     title: 'BRAIN #2 · plan',
+    select: (p) => withMarkedRouting(p.plan),
   },
   { key: 'execution', title: 'PYTHON · execute the lane' },
   // The memory is reference rather than pipeline: carried on every request
