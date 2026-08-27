@@ -8,7 +8,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAccessibleDialog } from '@/components/useAccessibleDialog';
-import { ChevronDown, ChevronRight, Loader2, LocateFixed, Search } from 'lucide-react';
+import { Loader2, LocateFixed, MapPin, Search } from 'lucide-react';
 import { loadCampusData, objectWithArray } from '@/lib/campus-data';
 import { MODAL_OVERLAY, MODAL_PANEL } from '@/components/modalShell';
 import type { MapLocation } from '@/lib/data-types';
@@ -78,16 +78,6 @@ function typeLabel(type: MapLocation['type']): string {
   return 'Layer';
 }
 
-const TYPE_SECTION_ORDER: MapLocation['type'][] = ['office', 'building', 'parking', 'layer'];
-
-function createDefaultCollapsedState(): Record<MapLocation['type'], boolean> {
-  return {
-    office: false,
-    building: false,
-    parking: false,
-    layer: false,
-  };
-}
 
 function filterLocations(locations: MapLocation[], query: string): MapLocation[] {
   const normalizedQuery = normalize(query);
@@ -193,9 +183,6 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
   const [currentLocationUrl, setCurrentLocationUrl] = useState<string | null>(null);
   const [transitionMapUrl, setTransitionMapUrl] = useState<string | null>(null);
   const [locationStatus, setLocationStatus] = useState<LocationStatus>({ state: 'idle', message: '' });
-  const [collapsedSections, setCollapsedSections] = useState<Record<MapLocation['type'], boolean>>(
-    () => createDefaultCollapsedState(),
-  );
 
   const locationByKey = useMemo(
     () => new Map(locations.map((location) => [location.key, location])),
@@ -254,10 +241,6 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
         if (resolved) {
           setSelectedKey(resolved.key);
           setSelectedSummaryKey(resolved.key);
-          setCollapsedSections((prev) => ({
-            ...prev,
-            [resolved.type]: false,
-          }));
         }
       }
     } else {
@@ -307,55 +290,31 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
       searchInputRef.current?.blur();
       setSelectedKey(location.key);
       setSelectedSummaryKey(location.key);
-      setCollapsedSections((previous) => ({
-        ...previous,
-        [location.type]: false,
-      }));
     };
 
     window.addEventListener('message', handleMapMessage);
     return () => window.removeEventListener('message', handleMapMessage);
   }, [isOpen, locationByMarkerId]);
 
+  // Tapping the box is not asking for all 204 places. It opened the whole
+  // directory — every building, all 126 offices, parking and layers — and
+  // buried the field you were about to type into under it. Results start when
+  // there is something to match.
   const filteredLocations = useMemo(
-    () => (isDirectoryOpen ? filterLocations(locations, search) : []),
+    () => (isDirectoryOpen && search.trim() ? filterLocations(locations, search) : []),
     [isDirectoryOpen, locations, search]
   );
   const selectedSummaryLocation = selectedSummaryKey
     ? locationByKey.get(selectedSummaryKey)
     : undefined;
-  const showResultPanel = isDirectoryOpen;
+  const showResultPanel = isDirectoryOpen && search.trim().length > 0;
   const useSplitResultLayout = showResultPanel && filteredLocations.length > 0;
-  const groupedLocations = useMemo(() => {
-    const grouped: Record<MapLocation['type'], MapLocation[]> = {
-      office: [],
-      building: [],
-      parking: [],
-      layer: [],
-    };
-
-    for (const location of filteredLocations) {
-      grouped[location.type].push(location);
-    }
-
-    return TYPE_SECTION_ORDER
-      .map((type) => ({ type, locations: grouped[type] }))
-      .filter((section) => section.locations.length > 0);
-  }, [filteredLocations]);
-
   const visibleSelectedKey = filteredLocations.some((location) => location.key === selectedKey)
     ? selectedKey
     : null;
 
   useEffect(() => {
     if (isOpen && visibleSelectedKey) {
-      const selectedLoc = locationByKey.get(visibleSelectedKey);
-      if (selectedLoc) {
-        setCollapsedSections((prev) => ({
-          ...prev,
-          [selectedLoc.type]: false,
-        }));
-      }
       const frame = window.requestAnimationFrame(() => {
         selectedItemRef.current?.scrollIntoView({
           behavior: 'auto',
@@ -364,7 +323,7 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
       });
       return () => window.cancelAnimationFrame(frame);
     }
-  }, [isOpen, visibleSelectedKey, locationByKey]);
+  }, [isOpen, visibleSelectedKey]);
 
   const selectedLocation = locationByKey.get(selectedKey) ?? locationByKey.get(CAMPUS_MAP_KEY);
   if (!isOpen || !selectedLocation) return null;
@@ -521,83 +480,55 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
                 className="flex-1 min-h-0 min-w-0 overflow-y-auto scrollbar-none"
               >
                 {filteredLocations.length === 0 ? (
-                  <div className="p-4 text-sm text-muted-foreground">No matches found. Try a different search term.</div>
-                ) : (
-                  <div className="p-3 space-y-3">
-                  {groupedLocations.map((section) => {
-                    const isCollapsed = collapsedSections[section.type];
-                    return (
-                      <section key={section.type} className="rounded-xl border border-border/50 bg-muted/10">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setCollapsedSections((previous) => ({
-                              ...previous,
-                              [section.type]: !previous[section.type],
-                            }))
-                          }
-                          className="w-full rounded-xl px-3 py-2 text-left transition-colors hover:bg-muted/20"
-                          aria-expanded={!isCollapsed}
-                          aria-controls={`map-type-section-${section.type}`}
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2">
-                              {isCollapsed ? (
-                                <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                              ) : (
-                                <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                              )}
-                              <span className="text-xs font-semibold uppercase tracking-wide text-foreground/90">
-                                {typeLabel(section.type)}
-                              </span>
-                            </div>
-                            <span className="text-xs text-muted-foreground">{section.locations.length}</span>
-                          </div>
-                        </button>
-
-                        {!isCollapsed && (
-                          <div id={`map-type-section-${section.type}`} className="space-y-2 px-2 pb-2">
-                            {section.locations.map((location) => {
-                              const isSelected = location.key === selectedKey;
-                              return (
-                                <button
-                                  key={location.key}
-                                  ref={isSelected ? selectedItemRef : undefined}
-                                  onClick={() => selectLocation(location.key)}
-                                  className={`w-full text-left rounded-xl border px-3 py-2.5 transition-all ${
-                                    isSelected
-                                      ? 'border-[#8E0A26] bg-[#8E0A26]/15 ring-2 ring-[#8E0A26]/50 shadow-md'
-                                      : 'border-border/60 bg-muted/20 hover:bg-muted/40'
-                                  }`}
-                                >
-                                  <p className="text-sm font-semibold leading-snug">{location.name}</p>
-                                  <div className="mt-1 space-y-0.5">
-                                    {location.type === 'office' ? (
-                                      location.room ? (
-                                        <p className="text-xs text-muted-foreground">Room: {location.room}</p>
-                                      ) : (
-                                        location.buildingName && (
-                                          <p className="text-xs text-muted-foreground">In {location.buildingName}</p>
-                                        )
-                                      )
-                                    ) : (
-                                      location.buildingName && (
-                                        <p className="text-xs text-muted-foreground">In {location.buildingName}</p>
-                                      )
-                                    )}
-                                    {location.description && (
-                                      <p className="text-xs text-muted-foreground">{location.description}</p>
-                                    )}
-                                  </div>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </section>
-                    );
-                  })}
+                  <div className="p-4 text-sm text-muted-foreground">
+                    No matches found. Try a different search term.
                   </div>
+                ) : (
+                  /*
+                    One flat list, in relevance order. It was grouped into
+                    collapsible cards per type, which made sense when tapping
+                    the box showed all 204 places and you needed somewhere to
+                    start. Now the query has already narrowed it, and the best
+                    match is what should be under your thumb — not the first
+                    member of whichever section happened to sort first.
+                  */
+                  <ul>
+                    {filteredLocations.map((location) => {
+                      const isSelected = location.key === selectedKey;
+                      const secondary =
+                        location.type === 'office' && location.room
+                          ? `Room: ${location.room}`
+                          : location.buildingName
+                            ? `In ${location.buildingName}`
+                            : location.description || typeLabel(location.type);
+                      return (
+                        <li key={location.key} className="border-b border-border/40 last:border-b-0">
+                          <button
+                            ref={isSelected ? selectedItemRef : undefined}
+                            onClick={() => selectLocation(location.key)}
+                            className={`flex min-h-14 w-full items-center gap-3 px-4 py-3 text-left transition-colors ${
+                              isSelected ? 'bg-[#8E0A26]/15' : 'hover:bg-muted/40'
+                            }`}
+                          >
+                            <MapPin
+                              aria-hidden="true"
+                              className="h-4 w-4 shrink-0 text-muted-foreground"
+                            />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-[15px] leading-snug text-foreground">
+                                {location.name}
+                              </span>
+                              {secondary && (
+                                <span className="block truncate text-xs text-muted-foreground">
+                                  {secondary}
+                                </span>
+                              )}
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
                 )}
               </div>
             )}
