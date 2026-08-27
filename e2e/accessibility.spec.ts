@@ -236,14 +236,13 @@ test('layout reflows at a 200% zoom-equivalent viewport', async ({ page }, testI
   await expectNoHighImpactAxeFindings(page, '200-percent-zoom-reflow');
 });
 
-// Who words the failure depends on the status, and the two are different
-// contracts. A 429 means one thing, so the client says it and whatever the
-// server muttered about internals stays out of the alert. A 503 does not mean
-// one thing — a lookup Rocky cannot do yet, a data service that did not
-// answer, a planner that failed — so the brain words it in `public_message`,
-// written for a student, and that is what has to reach the alert. Replacing it
-// with one sentence about being temporarily unavailable turns a permanent gap
-// into an outage and offers a retry that can only fail.
+// Whether the server's own words reach the alert depends on the code, not the
+// status. `SERVICE_UNAVAILABLE` is the generic one — it is what a planner
+// failure and an unreachable dependency both land on, so its message is as
+// likely to be internal detail as anything a student should read, and the
+// client says something safe instead. The narrower codes are the ones the
+// brain writes a `public_message` for, and those do reach the alert; the
+// `DATASET_UNAVAILABLE` case below covers that half.
 for (const failure of [
   {
     name: 'rate limit',
@@ -260,6 +259,19 @@ for (const failure of [
     status: 503,
     code: 'SERVICE_UNAVAILABLE',
     supportId: '72d93425-b4e4-444f-be32-21d4f9cdd526',
+    said: 'Internal upstream detail',
+    expectedCopy: /temporarily unavailable/i,
+    unexpectedCopy: 'Internal upstream detail',
+    retryAfter: undefined,
+  },
+  {
+    name: 'campus data outage',
+    status: 503,
+    code: 'DATASET_UNAVAILABLE',
+    supportId: 'f0e1d2c3-b4a5-4697-8899-aabbccddeeff',
+    // Named the moment it is raised, and worded there for a student. Saying
+    // "temporarily unavailable" over the top of it would describe a service
+    // that is fine and hide which part actually is not.
     said: 'Rocky could not reach campus data just now.',
     expectedCopy: /could not reach campus data/i,
     unexpectedCopy: 'temporarily unavailable',
