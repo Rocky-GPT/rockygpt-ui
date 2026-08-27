@@ -29,6 +29,17 @@ const CAMPUS_MAP_RESPONSE = {
       roomPrefixes: ['A'],
       description: 'Academic building.',
     },
+    {
+      key: 'building_soccer',
+      name: 'Competition Soccer Field',
+      type: 'building',
+      // Unresolved by the ingest: Concept3D's map carries no soccer field, and
+      // the ingest refuses to pin a place onto a different one.
+      mapUrl: 'https://map.ramapo.edu/?id=2292#!ct/99549,99550,99551?sbc/',
+      aliases: ['soccer'],
+      roomPrefixes: [],
+      description: 'Athletics field.',
+    },
     ...Array.from({ length: 24 }, (_, index) => ({
       key: `office_mock_${index}`,
       name: `Mock Office ${String(index + 1).padStart(2, '0')}`,
@@ -69,9 +80,10 @@ test('Where am I centers the campus map and enables the mobile blue dot', async 
   await prepareMap(page);
 
   const response = await page.goto('/');
-  expect(response?.headers()['permissions-policy']).toContain(
-    'geolocation=(self "https://map.ramapo.edu")'
-  );
+  // The embed is delegated nothing: this page holds the permission and hands
+  // the map coordinates, so there is no third-party origin in the policy.
+  expect(response?.headers()['permissions-policy']).toContain('geolocation=(self)');
+  expect(response?.headers()['permissions-policy']).not.toContain('map.ramapo.edu');
 
   await page.getByRole('button', { name: 'Campus Map', exact: true }).first().click();
   const dialog = page.getByRole('dialog', { name: 'Campus map' });
@@ -85,10 +97,13 @@ test('Where am I centers the campus map and enables the mobile blue dot', async 
   );
 
   await dialog.getByRole('button', { name: 'Where am I?' }).click();
-  await expect(mapFrame).toHaveAttribute('allow', 'geolocation; fullscreen');
+  // Still `fullscreen` alone. The frame is never granted geolocation, so it
+  // never asks, so it can never be denied — which is the failure that used to
+  // replace the entire map with Concept3D's own error page.
+  await expect(mapFrame).toHaveAttribute('allow', 'fullscreen');
   await expect(mapFrame).toHaveAttribute(
     'src',
-    'https://map.ramapo.edu/?id=2292&sbh&tbh&mbh&mch&cph&gtagConsent=necessary#!mc/41.081234,-74.174567?z/19?fls/'
+    'https://map.ramapo.edu/?id=2292&sbh&tbh&mbh&mch&cph&gtagConsent=necessary#!mc/41.081234,-74.174567?z/19'
   );
   await expect(dialog.getByRole('status')).toContainText('Showing your current location');
 });
@@ -220,4 +235,64 @@ test('Concept3D marker clicks select the matching campus location', async ({ pag
     'placeholder',
     'Davidson Center'
   );
+});
+
+test('a place the campus map does not carry says so instead of doing nothing', async ({ page }) => {
+  await prepareMap(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Campus Map', exact: true }).first().click();
+  const dialog = page.getByRole('dialog', { name: 'Campus map' });
+  await expect(dialog).toBeVisible();
+
+  const search = dialog.getByRole('textbox', { name: 'Search campus map' });
+  await search.click();
+  await search.fill('soccer');
+  await dialog.getByRole('button', { name: /Competition Soccer Field/ }).click();
+
+  // The map stays on the campus view — there is nothing to centre on — so the
+  // panel has to be the thing that reports it, or the row reads as broken.
+  await expect(dialog.getByRole('status')).toContainText(
+    'Competition Soccer Field is not marked on Ramapo\u2019s map'
+  );
+  await expect(dialog.locator('iframe')).toHaveAttribute(
+    'src',
+    'https://map.ramapo.edu/?id=2292&sbh&tbh&mbh&mch&cph&gtagConsent=necessary#!ct/99549,99550,99551'
+  );
+});
+
+test('a place the campus map does carry reports nothing', async ({ page }) => {
+  await prepareMap(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Campus Map', exact: true }).first().click();
+  const dialog = page.getByRole('dialog', { name: 'Campus map' });
+
+  const search = dialog.getByRole('textbox', { name: 'Search campus map' });
+  await search.click();
+  await search.fill('Davidson');
+  await dialog.getByRole('button', { name: /Davidson Center/ }).click();
+
+  await expect(dialog.getByRole('status')).toHaveCount(0);
+});
+
+test('the map is never asked to find the user itself', async ({ context, page }) => {
+  await context.grantPermissions(['geolocation']);
+  await context.setGeolocation({ latitude: 41.081234, longitude: -74.174567 });
+  await prepareMap(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Campus Map', exact: true }).first().click();
+
+  const dialog = page.getByRole('dialog', { name: 'Campus map' });
+  await dialog.getByRole('button', { name: 'Where am I?' }).click();
+  await expect(dialog.getByRole('status')).toContainText('Showing your current location');
+
+  // `?fls/` hands Concept3D its own location feed, and a denied request throws
+  // it into an update loop its error boundary turns into a full-frame "Sorry!
+  // Something went wrong..." page. Verified against the live map: with the
+  // directive and permission denied it crashes; without it, granted or denied,
+  // it renders identically. So the directive must never reappear in a url, and
+  // the frame must never hold the permission that would let it ask.
+  const src = await dialog.locator('iframe').getAttribute('src');
+  expect(src).toContain('#!mc/41.081234,-74.174567?z/19');
+  expect(src).not.toContain('fls');
+  await expect(dialog.locator('iframe')).toHaveAttribute('allow', 'fullscreen');
 });

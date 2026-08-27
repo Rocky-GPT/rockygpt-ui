@@ -96,9 +96,10 @@ export function buildSecurityHeaders(options: SecurityHeaderOptions = {}): Secur
     { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
     {
       key: 'Permissions-Policy',
-      // RockyGPT requests location only after a user presses "Where am I?" and
-      // then delegates it only to Ramapo's embedded map for the live blue dot.
-      value: 'camera=(), geolocation=(self "https://map.ramapo.edu"), microphone=(), payment=(), usb=()',
+      // RockyGPT requests location only after a user presses "Where am I?",
+      // and keeps it: the coordinates go into the map's url rather than to the
+      // map itself, so the embed is delegated nothing.
+      value: 'camera=(), geolocation=(self), microphone=(), payment=(), usb=()',
     },
     // CSP frame-ancestors is authoritative; X-Frame-Options protects legacy clients.
     { key: 'X-Frame-Options', value: 'DENY' },

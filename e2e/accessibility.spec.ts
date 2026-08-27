@@ -402,3 +402,18 @@ test('failed feedback never reports success and remains retryable', async ({ pag
   await expect(page.getByText(/Thanks/i)).toBeVisible();
   expect(attempts).toBe(2);
 });
+
+test('the campus shortcuts step aside while the composer is being typed in', async ({ page }) => {
+  const birch = page.getByRole('button', { name: 'Birch Menu' });
+  const chatInput = page.getByRole('textbox', { name: 'Message RockyGPT' });
+  await expect(birch).toBeVisible();
+
+  await chatInput.click();
+  // Hidden, not merely faded: a shortcut you cannot see must not be tabbable
+  // and must not be read out, or the keyboard and screen-reader orders keep
+  // walking through nine controls that are no longer on offer.
+  await expect(birch).toBeHidden();
+
+  await chatInput.blur();
+  await expect(birch).toBeVisible();
+});
