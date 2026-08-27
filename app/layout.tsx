@@ -7,7 +7,7 @@
  * dark-mode theme provider.
  */
 
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "@/app/globals.css";
 
@@ -52,7 +52,14 @@ export const viewport = {
   themeColor: "#991B1E",
   width: "device-width",
   initialScale: 1,
-};
+  // Let the on-screen keyboard shrink the layout viewport instead of covering
+  // it. Under the default, `innerHeight` stays the full 812 while the visible
+  // area drops to about 470, so the composer — pinned to the bottom of a
+  // viewport that never moved — sat at 694-812, entirely behind the keyboard,
+  // as did every modal's search field. Nothing could scroll it into view
+  // either, because both are fixed. Resizing the content moves them instead.
+  interactiveWidget: "resizes-content",
+} satisfies Viewport;
 
 /**
  * Root document layout with app metadata, theme support, and global styles.
