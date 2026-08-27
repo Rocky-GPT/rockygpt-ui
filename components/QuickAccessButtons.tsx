@@ -1060,20 +1060,24 @@ export function ClubsModal({ isOpen, onClose }: ModalProps) {
   useEffect(() => {
     if (isOpen) {
       fetch('/api/data/clubs')
-        .then(res => res.json())
+        .then(res => {
+          if (!res.ok) throw new Error(`Clubs request failed: ${res.status}`);
+          return res.json();
+        })
         .then(data => {
-          setClubs(data);
+          setClubs(Array.isArray(data) ? data : []);
           setLoading(false);
         })
         .catch(err => {
           console.error('Error loading clubs:', err);
+          setClubs([]);
           setLoading(false);
         });
     }
   }, [isOpen]);
 
   const filteredClubs = useMemo(() => {
-    let filtered = clubs;
+    let filtered = Array.isArray(clubs) ? clubs : [];
     
     if (searchQuery) {
       const fuse = new Fuse(clubs, {
@@ -1662,13 +1666,38 @@ export function CalendarModal({ isOpen, onClose }: ModalProps) {
 
   useEffect(() => {
     if (isOpen) {
+      setLoading(true);
       fetch('/api/data/calendar')
-        .then((res) => res.json())
-        .then((data: Semester[]) => {
-          setSemesters(data);
+        .then((res) => {
+          if (!res.ok) throw new Error(`Calendar fetch failed: ${res.status}`);
+          return res.json();
+        })
+        .then((data: unknown) => {
+          const rawList = Array.isArray(data) ? (data as Semester[]) : [];
+          // Deduplicate semesters by name if duplicates exist in release artifact
+          const deduped: Semester[] = [];
+          const seen = new Set<string>();
+          for (const s of rawList) {
+            if (s && typeof s.name === 'string') {
+              if (!seen.has(s.name)) {
+                seen.add(s.name);
+                deduped.push({
+                  name: s.name,
+                  events: Array.isArray(s.events) ? s.events : [],
+                });
+              } else {
+                const existing = deduped.find(e => e.name === s.name);
+                if (existing && Array.isArray(s.events)) {
+                  existing.events = [...existing.events, ...s.events];
+                }
+              }
+            }
+          }
+
+          setSemesters(deduped);
           
-          const academic = data.filter(s => !s.name.startsWith('Housing:'));
-          const housing = data.filter(s => s.name.startsWith('Housing:'));
+          const academic = deduped.filter(s => !s.name.startsWith('Housing:'));
+          const housing = deduped.filter(s => s.name.startsWith('Housing:'));
           
           if (academic.length > 0) setActiveSemester(academic[0].name);
           if (housing.length > 0) setActiveHousingSemester(housing[0].name);
@@ -1677,6 +1706,7 @@ export function CalendarModal({ isOpen, onClose }: ModalProps) {
         })
         .catch((err) => {
           console.error('Error loading calendar:', err);
+          setSemesters([]);
           setLoading(false);
         });
     }
@@ -1691,11 +1721,15 @@ export function CalendarModal({ isOpen, onClose }: ModalProps) {
   if (!isOpen) return null;
 
   const currentTabName = calendarMode === 'academics' ? activeSemester : activeHousingSemester;
-  const activeEvents = semesters.find(s => s.name === currentTabName)?.events || [];
+  const activeEvents = Array.isArray(semesters)
+    ? (semesters.find(s => s.name === currentTabName)?.events || [])
+    : [];
   
-  const displayedSemesters = semesters.filter(s => 
-    calendarMode === 'housing' ? s.name.startsWith('Housing:') : !s.name.startsWith('Housing:')
-  );
+  const displayedSemesters = Array.isArray(semesters)
+    ? semesters.filter(s => 
+        calendarMode === 'housing' ? s.name.startsWith('Housing:') : !s.name.startsWith('Housing:')
+      )
+    : [];
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
@@ -1724,7 +1758,7 @@ export function CalendarModal({ isOpen, onClose }: ModalProps) {
         </div>
 
         {/* Mode & Semester Tabs */}
-        {!loading && semesters.length > 0 && (
+        {!loading && displayedSemesters.length > 0 && (
           <div className="px-6 py-3 border-b border-border bg-muted/30 flex flex-col gap-3">
             <div className="flex p-1 bg-background/50 border border-border rounded-xl">
                <button
@@ -1750,13 +1784,13 @@ export function CalendarModal({ isOpen, onClose }: ModalProps) {
             </div>
             
             <div className="flex gap-2 overflow-x-auto scrollbar-none pb-1">
-              {displayedSemesters.map((semester) => {
+              {displayedSemesters.map((semester, sIdx) => {
                 const displayName = semester.name.replace('Housing: ', '');
                 const isActive = currentTabName === semester.name;
                 
                 return (
                   <button
-                    key={semester.name}
+                    key={`${semester.name}-${sIdx}`}
                     onClick={() => {
                        if (calendarMode === 'academics') setActiveSemester(semester.name);
                        else setActiveHousingSemester(semester.name);
@@ -1792,14 +1826,15 @@ export function CalendarModal({ isOpen, onClose }: ModalProps) {
                 let todayMarkerInserted = false;
 
                 return activeEvents.map((event, idx) => {
-                  const parts = event.date.split(' ');
+                  const rawDate = typeof event?.date === 'string' ? event.date : '';
+                  const parts = rawDate.trim().split(/\s+/);
                   const month = parts[0]?.replace(/[^a-zA-Z]/g, '').substring(0, 3).toUpperCase() || '---';
                   const day = parts[1]?.replace(/[^0-9]/g, '') || '--';
 
                   // PROB-019: the displayed tab supplies the year. Housing
                   // events must never be classified with the academic
                   // semester's year (or vice versa).
-                  const eventDate = parseSemesterEventDate(event.date, currentTabName);
+                  const eventDate = parseSemesterEventDate(rawDate, currentTabName || '');
                   // Consider an event "past" if it happened before yesterday
                   const isPast = eventDate.getTime() < now.getTime() - 86400000;
                   
@@ -1832,8 +1867,8 @@ export function CalendarModal({ isOpen, onClose }: ModalProps) {
                           <span className="text-2xl font-black text-foreground leading-none">{day}</span>
                         </div>
                         <div className="flex-1 flex flex-col justify-center min-w-0">
-                          <h3 className={`text-sm sm:text-base font-bold text-foreground leading-snug mb-1 ${isPast ? 'line-through decoration-muted-foreground/30' : ''}`}>{event.title}</h3>
-                          {event.description && (
+                          <h3 className={`text-sm sm:text-base font-bold text-foreground leading-snug mb-1 ${isPast ? 'line-through decoration-muted-foreground/30' : ''}`}>{event?.title || 'Academic Event'}</h3>
+                          {event?.description && (
                             <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-medium">
                               <Clock className="w-3.5 h-3.5 shrink-0 opacity-70" />
                               <span className="truncate">{event.description.replace(' am', ' AM').replace(' pm', ' PM')}</span>
