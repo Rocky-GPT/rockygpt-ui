@@ -593,6 +593,7 @@ export default function Home() {
   const actionMenuCloseTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const [isSplashDismissed, setIsSplashDismissed] = useState(false);
+  const [isComposerFocused, setIsComposerFocused] = useState(false);
   const [shouldOpenWelcomeOnLoad, setShouldOpenWelcomeOnLoad] = useState(false);
   // Guards the auto-open below so the welcome modal is only ever raised once per
   // page load, no matter how often the splash reports its fade.
@@ -1633,7 +1634,23 @@ export default function Home() {
                 ))}
               </div>
 
-              <div className="flex flex-wrap gap-2">
+              {/*
+                The shortcuts step aside once you start writing.
+                They are an alternative to typing, so the moment you type they
+                are nine things you have already declined — and on a phone they
+                are nine things directly under the keyboard, crowding the one
+                row that matters. The negative margin cancels the column's gap
+                so the space closes with them rather than staying behind as a
+                hole. Collapsed on the wrapper, not the buttons: each button
+                owns its entrance animation with a `both` fill, which would
+                outrank any opacity written onto it.
+              */}
+              <div
+                aria-hidden={isComposerFocused}
+                className={`flex flex-wrap gap-2 overflow-hidden transition-[max-height,opacity,margin] duration-300 ease-out motion-reduce:transition-none ${
+                  isComposerFocused ? 'pointer-events-none -mt-8 max-h-0 opacity-0' : 'max-h-96 opacity-100'
+                }`}
+              >
                 {[
                   { icon: Utensils, label: 'Birch Menu', action: () => setIsMenuOpen(true) },
                   { icon: Bus, label: 'Shuttle Schedule', action: () => setIsBusModalOpen(true) },
@@ -1668,6 +1685,7 @@ export default function Home() {
                   <button
                     key={label}
                     onClick={action}
+                    tabIndex={isComposerFocused ? -1 : undefined}
                     className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-muted hover:bg-muted/70 text-sm font-medium transition-colors ${isSplashDismissed ? 'animate-hero-pill' : 'opacity-0'}`}
                     style={{ animationDelay: `${180 + index * 35}ms` }}
                   >
@@ -2165,6 +2183,8 @@ export default function Home() {
                 placeholder="Ask RockyGPT"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
+                onFocus={() => setIsComposerFocused(true)}
+                onBlur={() => setIsComposerFocused(false)}
                 maxLength={MAX_MESSAGE_LENGTH}
               />
               {isLoading ? (

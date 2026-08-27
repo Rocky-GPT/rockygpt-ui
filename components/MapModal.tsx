@@ -181,10 +181,45 @@ function cleanMapEmbedUrl(rawUrl: string): string {
   }
 }
 
+/**
+ * Centre the map on coordinates this page already has.
+ *
+ * Deliberately without `?fls/`. That directive hands the map its own live
+ * location feed, and Concept3D cannot survive being told no: a denied request
+ * throws it into an update loop, its error boundary catches it, and the whole
+ * map becomes "Sorry! Something went wrong..." — a worse outcome than any dot
+ * is worth, and one we would be showing on Ramapo's behalf.
+ *
+ * Nothing is lost. Loaded four ways against the live map — with and without
+ * `fls`, permission granted and denied — three of the four renders came back
+ * byte-for-byte identical, including the framing and zoom. Only `fls` with
+ * permission denied differed, and that one was the error page. `mc` does the
+ * centring; `fls` only added a way to fail.
+ */
 function currentLocationMapUrl(latitude: number, longitude: number): string {
   const lat = latitude.toFixed(6);
   const lng = longitude.toFixed(6);
-  return embedUrl(CAMPUS_MAP_ID, `#!mc/${lat},${lng}?z/19?fls/`);
+  return embedUrl(CAMPUS_MAP_ID, `#!mc/${lat},${lng}?z/19`);
+}
+
+/**
+ * Whether the map can actually show this place.
+ *
+ * Ramapo's own directory lists a few places Concept3D's map does not carry —
+ * the running track, the competition soccer field, the visitor's circle. The
+ * ingest resolves a place by exact name or by an alias someone checked, and
+ * deliberately refuses to guess: their search answers "Running Track and
+ * Stadium Field" with the softball field, and a pin on the wrong field looks
+ * like an answer. So an unresolved place keeps the plain campus map.
+ *
+ * That is the right link. It is a terrible tap. The map is usually already on
+ * the campus view, so choosing one of these moved nothing on screen and read
+ * as a broken row. Knowing which places are unpinned is what lets the panel
+ * say so instead.
+ */
+function isPinned(location: MapLocation): boolean {
+  const hash = cleanMapEmbedUrl(location.mapUrl).split('#')[1] ?? '';
+  return `#${hash}` !== CAMPUS_OVERVIEW_HASH;
 }
 
 function markerIdFromMapUrl(rawUrl: string): string | null {
@@ -350,6 +385,11 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
   const selectedSummaryLocation = selectedSummaryKey
     ? locationByKey.get(selectedSummaryKey)
     : undefined;
+  const summaryIsUnpinned = Boolean(
+    selectedSummaryLocation &&
+      selectedSummaryLocation.key !== CAMPUS_MAP_KEY &&
+      !isPinned(selectedSummaryLocation)
+  );
   const showResultPanel = isDirectoryOpen && search.trim().length > 0;
   const visibleSelectedKey = filteredLocations.some((location) => location.key === selectedKey)
     ? selectedKey
@@ -518,10 +558,12 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
                     : `Ramapo map preview for ${selectedLocation.name}`
                 }
                 src={mapEmbedUrl}
-                // Do not delegate geolocation merely by opening the map. It is
-                // enabled only after the explicit "Where am I?" action succeeds,
-                // allowing Concept3D to render and update its native blue dot.
-                allow={currentLocationUrl ? 'geolocation; fullscreen' : 'fullscreen'}
+                // No geolocation delegation, ever. This page asks for location
+                // itself, on an explicit "Where am I?", and passes the map the
+                // coordinates. The frame never needs to ask, so it is never
+                // given the standing to — which is both one less prompt and
+                // one less thing to hand a third party.
+                allow="fullscreen"
                 className="w-full h-full border-0 bg-muted/10"
               />
             </div>
@@ -643,6 +685,12 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
                     </button>
                   )}
                 </div>
+                {summaryIsUnpinned && (
+                  <p role="status" className="mt-2 text-xs text-muted-foreground">
+                    <span className="text-foreground">{selectedSummaryLocation?.name}</span> is not
+                    marked on Ramapo&rsquo;s map, so the campus view is shown instead.
+                  </p>
+                )}
               </div>
             </div>
 
