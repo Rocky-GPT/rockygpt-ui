@@ -7,10 +7,10 @@
  * Two viewports exist on a phone and they disagree while the keyboard is up.
  * The *layout* viewport is what CSS lays out against and what `fixed` anchors
  * to; it does not move. The *visual* viewport is the part you can still see.
- * `window.innerHeight` reports the first, so a composer pinned to `bottom-0`
- * is pinned underneath the keyboard: at 375x812 it sat at 694-812 with roughly
- * 340px of that covered, and nothing could scroll it into view because it is
- * fixed and there is no overflow to scroll.
+ * `documentElement.clientHeight` reports the first, so a composer pinned to
+ * `bottom-0` is pinned underneath the keyboard: at 375x812 it sat at 694-812
+ * with roughly 340px of that covered, and nothing could scroll it into view
+ * because it is fixed and there is no overflow to scroll.
  *
  * The instinct is to make the keyboard resize the layout, which fixes the
  * composer by moving the entire page — every fixed thing, the scroll position,
@@ -44,11 +44,20 @@ const readers = new Set<() => void>();
  * `offsetTop` matters as much as `height`: iOS scrolls the visual viewport
  * within the layout viewport to keep a focused field visible, so the covered
  * strip is what remains below the visible band, not simply the height lost.
+ *
+ * Measured against `documentElement.clientHeight` rather than
+ * `window.innerHeight`, because only the first is the box a `fixed` element is
+ * positioned inside. On iOS Safari `innerHeight` also counts the strip behind
+ * the collapsed bottom toolbar, which `visualViewport.height` does not, so
+ * subtracting one from the other charged the keyboard for the toolbar too —
+ * about seventy pixels of dead space between a panel and the keys it was
+ * supposed to be sitting on.
  */
 function measure(): number {
   const viewport = window.visualViewport;
   if (!viewport) return 0;
-  const covered = window.innerHeight - (viewport.height + viewport.offsetTop);
+  const layout = document.documentElement.clientHeight || window.innerHeight;
+  const covered = layout - (viewport.height + viewport.offsetTop);
   return covered > NOISE_FLOOR ? Math.round(covered) : 0;
 }
 
