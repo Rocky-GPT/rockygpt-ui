@@ -121,6 +121,27 @@ function filterLocations(locations: MapLocation[], query: string): MapLocation[]
   return ranked;
 }
 
+/**
+ * Close enough to see the building you asked for.
+ *
+ * A marker on its own drops the pin but keeps the campus-wide framing, so
+ * choosing "Birch Tree Inn Restaurant" answered with a pin somewhere in a
+ * picture of the whole college — technically the right place and no use for
+ * finding the door. At this level the building, its paths and its entrances
+ * are all legible.
+ *
+ * Only a single place is zoomed. A category pins several at once — every
+ * dining location, every lot — and framing one of them would cut the rest off
+ * the map, so those keep the wider view that shows the set.
+ */
+const PLACE_ZOOM = 18;
+
+function withPlaceZoom(hash: string): string {
+  if (!/^#!m\/\d+/.test(hash)) return hash;
+  if (/\?z\//.test(hash)) return hash;
+  return `${hash}?z/${PLACE_ZOOM}`;
+}
+
 function cleanMapEmbedUrl(rawUrl: string): string {
   if (!rawUrl) return `${CAMPUS_MAP_ORIGIN}/?id=${CAMPUS_MAP_ID}&sbh&tbh&mbh&mch${CAMPUS_OVERVIEW_HASH}`;
   try {
@@ -133,7 +154,7 @@ function cleanMapEmbedUrl(rawUrl: string): string {
     // `mbh` suppresses Concept3D's native marker panel so RockyGPT can own the
     // surrounding location UI. `sbh`, `tbh`, and `mch` hide the remaining map
     // chrome, including the home, layer, and zoom control stack.
-    return `${CAMPUS_MAP_ORIGIN}/?id=${id}&sbh&tbh&mbh&mch${hash}`;
+    return `${CAMPUS_MAP_ORIGIN}/?id=${id}&sbh&tbh&mbh&mch${withPlaceZoom(hash)}`;
   } catch {
     return `${CAMPUS_MAP_ORIGIN}/?id=${CAMPUS_MAP_ID}&sbh&tbh&mbh&mch${CAMPUS_OVERVIEW_HASH}`;
   }

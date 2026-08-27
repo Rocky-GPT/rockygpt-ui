@@ -144,7 +144,7 @@ test('the campus directory opens on search focus and collapses after selection',
   await davidsonResult.click();
   await expect(dialog.locator('iframe')).toHaveAttribute(
     'src',
-    'https://map.ramapo.edu/?id=2292&sbh&tbh&mbh&mch#!m/1133371'
+    'https://map.ramapo.edu/?id=2292&sbh&tbh&mbh&mch#!m/1133371?z/18'
   );
   await expect(search).toHaveValue('');
   await expect(search).not.toBeFocused();
@@ -161,7 +161,7 @@ test('the campus directory opens on search focus and collapses after selection',
   );
   await expect(dialog.locator('iframe')).toHaveAttribute(
     'src',
-    'https://map.ramapo.edu/?id=2292&sbh&tbh&mbh&mch#!m/1133343'
+    'https://map.ramapo.edu/?id=2292&sbh&tbh&mbh&mch#!m/1133343?z/18'
   );
   await expect(search).toHaveAttribute('placeholder', 'Academic Building');
 
@@ -214,7 +214,7 @@ test('Concept3D marker clicks select the matching campus location', async ({ pag
 
   await expect(mapFrame).toHaveAttribute(
     'src',
-    'https://map.ramapo.edu/?id=2292&sbh&tbh&mbh&mch#!m/1133371'
+    'https://map.ramapo.edu/?id=2292&sbh&tbh&mbh&mch#!m/1133371?z/18'
   );
   await expect(dialog.getByRole('textbox', { name: 'Search campus map' })).toHaveAttribute(
     'placeholder',
