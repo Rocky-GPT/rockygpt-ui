@@ -436,7 +436,11 @@ export function MessageJsonModal({
               // that ran and found nothing rather than one with nothing to do.
               return typeof drawn !== 'object' || Object.keys(drawn).length > 0;
             }).map(({ key, title, select, preview, hidden, collapsed }, index) => {
-              const drawn = select ? select(pipeline) : (pipeline[key] ?? null);
+              // `?? null` on both branches: `JSON.stringify(undefined)` is
+              // `undefined`, not a string, and the viewer reads it as one. An
+              // error turn carries no `brainTrace`, so the never-omitted plan
+              // box selected nothing and took the page down with it.
+              const drawn = (select ? select(pipeline) : pipeline[key]) ?? null;
               return (
               <JsonViewer
                 key={key}

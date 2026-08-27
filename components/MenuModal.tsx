@@ -9,6 +9,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useAccessibleDialog } from '@/components/useAccessibleDialog';
 import { MODAL_PANEL } from '@/components/modalShell';
+import { anyObject, loadCampusData } from '@/lib/campus-data';
 import {
   Apple,
   Bean,
@@ -512,9 +513,10 @@ export function MenuModal({ isOpen, onClose, defaultMeal }: MenuModalProps) {
 
       if (dayOffset === 0) {
         // Today — use the pre-fetched local endpoint
-        const res = await fetch('/api/menu');
-        const resData: MenuApiResponse = await res.json();
+        const loaded = await loadCampusData('/api/menu', anyObject);
         if (!isCurrent()) return;
+        if (!loaded.ok) throw new Error(loaded.message);
+        const resData = loaded.data as MenuApiResponse;
         content = resData.content ?? null;
         closed = Boolean(resData.closed);
         closureReason = resData.closureReason;
@@ -524,9 +526,10 @@ export function MenuModal({ isOpen, onClose, defaultMeal }: MenuModalProps) {
         setMenuUpdatedUtc(updatedValue);
       } else {
         // Future day — proxy through Sodexo
-        const res = await fetch(`/api/menu/browse?date=${dateParam}`);
-        const resData: MenuApiResponse = await res.json();
+        const loaded = await loadCampusData(`/api/menu/browse?date=${dateParam}`, anyObject);
         if (!isCurrent()) return;
+        if (!loaded.ok) throw new Error(loaded.message);
+        const resData = loaded.data as MenuApiResponse;
         closed = Boolean(resData.closed);
         closureReason = resData.closureReason;
         if (resData.available && resData.content) {
@@ -608,16 +611,16 @@ export function MenuModal({ isOpen, onClose, defaultMeal }: MenuModalProps) {
   useEffect(() => {
     if (!isOpen) return;
     setHoursLoading(true);
-    fetch(`/api/dining-hours?date=${selectedDateParam}`)
-      .then(res => res.json())
-      .then((data: DiningHoursResponse) => {
-        setDiningHours(data);
-        setHoursLoading(false);
-      })
-      .catch(() => {
+    void loadCampusData(`/api/dining-hours?date=${selectedDateParam}`, anyObject).then(result => {
+      if (!result.ok) {
+        console.error('Unable to load dining hours:', result.message);
         setDiningHours(null);
         setHoursLoading(false);
-      });
+        return;
+      }
+      setDiningHours(result.data as unknown as DiningHoursResponse);
+      setHoursLoading(false);
+    });
   }, [isOpen, selectedDateParam]);
 
   // Lock scroll

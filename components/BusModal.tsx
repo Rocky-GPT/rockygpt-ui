@@ -9,6 +9,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAccessibleDialog } from '@/components/useAccessibleDialog';
 import { X, Bus, MapPin, TrainFront } from 'lucide-react';
+import { loadCampusData, objectWithArray } from '@/lib/campus-data';
 import type { ShuttleRoute, ShuttleSchedule } from '@/lib/data-types';
 import { MODAL_PANEL } from '@/components/modalShell';
 
@@ -75,12 +76,19 @@ export function BusModal({ isOpen, onClose }: ModalProps) {
   useEffect(() => {
     if (!isOpen) return;
     const controller = new AbortController();
-    void fetch('/api/shuttle', { signal: controller.signal })
-      .then((response) => {
-        if (!response.ok) throw new Error(`Shuttle service answered ${response.status}`);
-        return response.json() as Promise<ShuttleSchedule>;
+    // `weekday` is the field every view here reads first, so it is what makes
+    // a payload drawable. Without the check a 200 of the wrong shape reached
+    // state and failed later, in render, where there is nothing to catch it.
+    void loadCampusData('/api/shuttle', objectWithArray('weekday'), {
+      signal: controller.signal,
+    })
+      .then((result) => {
+        if (!result.ok) {
+          console.error('Unable to load shuttle schedule:', result.message);
+          return;
+        }
+        setShuttleSchedule(result.data as unknown as ShuttleSchedule);
       })
-      .then(setShuttleSchedule)
       .catch((error) => {
         if (error instanceof Error && error.name !== 'AbortError') {
           console.error('Unable to load shuttle schedule:', error);
