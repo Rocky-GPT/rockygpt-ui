@@ -81,14 +81,14 @@ test('Where am I centers the campus map and enables the mobile blue dot', async 
   await expect(mapFrame).toHaveAttribute('allow', 'fullscreen');
   await expect(mapFrame).toHaveAttribute(
     'src',
-    'https://map.ramapo.edu/?id=2292&sbh&tbh&mbh&mch#!ct/99549,99550,99551'
+    'https://map.ramapo.edu/?id=2292&sbh&tbh&mbh&mch&cph&gtagConsent=necessary#!ct/99549,99550,99551'
   );
 
   await dialog.getByRole('button', { name: 'Where am I?' }).click();
   await expect(mapFrame).toHaveAttribute('allow', 'geolocation; fullscreen');
   await expect(mapFrame).toHaveAttribute(
     'src',
-    'https://map.ramapo.edu/?id=2292&sbh&tbh&mbh&mch#!mc/41.081234,-74.174567?z/19?fls/'
+    'https://map.ramapo.edu/?id=2292&sbh&tbh&mbh&mch&cph&gtagConsent=necessary#!mc/41.081234,-74.174567?z/19?fls/'
   );
   await expect(dialog.getByRole('status')).toContainText('Showing your current location');
 });
@@ -108,7 +108,7 @@ test('Where am I explains when location permission is denied', async ({ context,
   await expect(mapFrame).toHaveAttribute('allow', 'fullscreen');
   await expect(mapFrame).toHaveAttribute(
     'src',
-    'https://map.ramapo.edu/?id=2292&sbh&tbh&mbh&mch#!ct/99549,99550,99551'
+    'https://map.ramapo.edu/?id=2292&sbh&tbh&mbh&mch&cph&gtagConsent=necessary#!ct/99549,99550,99551'
   );
 });
 
@@ -138,13 +138,13 @@ test('the campus directory opens on search focus and collapses after selection',
   await expect(davidsonResult).toBeVisible();
   await expect(dialog.locator('iframe')).toHaveAttribute(
     'src',
-    'https://map.ramapo.edu/?id=2292&sbh&tbh&mbh&mch#!ct/99549,99550,99551'
+    'https://map.ramapo.edu/?id=2292&sbh&tbh&mbh&mch&cph&gtagConsent=necessary#!ct/99549,99550,99551'
   );
 
   await davidsonResult.click();
   await expect(dialog.locator('iframe')).toHaveAttribute(
     'src',
-    'https://map.ramapo.edu/?id=2292&sbh&tbh&mbh&mch#!m/1133371?z/18'
+    'https://map.ramapo.edu/?id=2292&sbh&tbh&mbh&mch&cph&gtagConsent=necessary#!m/1133371?z/18'
   );
   await expect(search).toHaveValue('');
   await expect(search).not.toBeFocused();
@@ -157,11 +157,11 @@ test('the campus directory opens on search focus and collapses after selection',
   await academicResult.click();
   await expect(dialog.locator('iframe')).toHaveAttribute(
     'src',
-    'https://map.ramapo.edu/?id=2292&sbh&tbh&mbh&mch#!ct/99549,99550,99551'
+    'https://map.ramapo.edu/?id=2292&sbh&tbh&mbh&mch&cph&gtagConsent=necessary#!ct/99549,99550,99551'
   );
   await expect(dialog.locator('iframe')).toHaveAttribute(
     'src',
-    'https://map.ramapo.edu/?id=2292&sbh&tbh&mbh&mch#!m/1133343?z/18'
+    'https://map.ramapo.edu/?id=2292&sbh&tbh&mbh&mch&cph&gtagConsent=necessary#!m/1133343?z/18'
   );
   await expect(search).toHaveAttribute('placeholder', 'Academic Building');
 
@@ -204,7 +204,7 @@ test('Concept3D marker clicks select the matching campus location', async ({ pag
   const mapFrame = dialog.locator('iframe');
   await expect(mapFrame).toHaveAttribute(
     'src',
-    'https://map.ramapo.edu/?id=2292&sbh&tbh&mbh&mch#!ct/99549,99550,99551'
+    'https://map.ramapo.edu/?id=2292&sbh&tbh&mbh&mch&cph&gtagConsent=necessary#!ct/99549,99550,99551'
   );
   const concept3dFrame = page.frames().find((frame) => frame.url().startsWith('https://map.ramapo.edu/'));
   expect(concept3dFrame).toBeDefined();
@@ -214,7 +214,7 @@ test('Concept3D marker clicks select the matching campus location', async ({ pag
 
   await expect(mapFrame).toHaveAttribute(
     'src',
-    'https://map.ramapo.edu/?id=2292&sbh&tbh&mbh&mch#!m/1133371?z/18'
+    'https://map.ramapo.edu/?id=2292&sbh&tbh&mbh&mch&cph&gtagConsent=necessary#!m/1133371?z/18'
   );
   await expect(dialog.getByRole('textbox', { name: 'Search campus map' })).toHaveAttribute(
     'placeholder',
