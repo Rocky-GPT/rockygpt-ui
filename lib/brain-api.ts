@@ -33,6 +33,7 @@ export interface ChatResult {
     understanding: Record<string, unknown>;
     context: Record<string, unknown>;
     plan: Record<string, unknown>;
+    normalizedPlan: Record<string, unknown>;
     execution: Record<string, unknown>;
     answer: Record<string, unknown>;
   };
