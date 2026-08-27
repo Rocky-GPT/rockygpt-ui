@@ -142,8 +142,32 @@ function withPlaceZoom(hash: string): string {
   return `${hash}?z/${PLACE_ZOOM}`;
 }
 
+/**
+ * The flags every embed of this map carries.
+ *
+ * `mbh` suppresses Concept3D's native marker panel so RockyGPT can own the
+ * surrounding location UI. `sbh`, `tbh`, and `mch` hide the remaining map
+ * chrome, including the home, layer, and zoom control stack.
+ *
+ * `cph` suppresses Concept3D's cookie prompt, and `gtagConsent` supplies the
+ * answer it was asking for. It is `necessary`, never `granted`: the only thing
+ * consented to is what the map needs to draw itself. RockyGPT is not in a
+ * position to grant analytics or marketing consent for a student, so it does
+ * not — and hiding the prompt while claiming more than that would be worse
+ * than the prompt.
+ *
+ * Answering here rather than in the frame is also what makes the answer stick.
+ * Concept3D records a consent it collects itself in a cookie on its own
+ * origin, which Safari discards for a third-party frame, so a prompt accepted
+ * on one open was asked again on the next. A url carries no such baggage.
+ */
+const EMBED_FLAGS = '&sbh&tbh&mbh&mch&cph&gtagConsent=necessary';
+
+const embedUrl = (id: string, hash: string): string =>
+  `${CAMPUS_MAP_ORIGIN}/?id=${id}${EMBED_FLAGS}${hash}`;
+
 function cleanMapEmbedUrl(rawUrl: string): string {
-  if (!rawUrl) return `${CAMPUS_MAP_ORIGIN}/?id=${CAMPUS_MAP_ID}&sbh&tbh&mbh&mch${CAMPUS_OVERVIEW_HASH}`;
+  if (!rawUrl) return embedUrl(CAMPUS_MAP_ID, CAMPUS_OVERVIEW_HASH);
   try {
     const url = new URL(rawUrl);
     const requestedId = url.searchParams.get('id');
@@ -151,19 +175,16 @@ function cleanMapEmbedUrl(rawUrl: string): string {
     // Strip sidebar control query params embedded in hash
     let hash = url.hash.replace(/\?sbc\/?/, '').replace(/\?sbh\/?/, '');
     if (!hash || hash === '#!') hash = CAMPUS_OVERVIEW_HASH;
-    // `mbh` suppresses Concept3D's native marker panel so RockyGPT can own the
-    // surrounding location UI. `sbh`, `tbh`, and `mch` hide the remaining map
-    // chrome, including the home, layer, and zoom control stack.
-    return `${CAMPUS_MAP_ORIGIN}/?id=${id}&sbh&tbh&mbh&mch${withPlaceZoom(hash)}`;
+    return embedUrl(id, withPlaceZoom(hash));
   } catch {
-    return `${CAMPUS_MAP_ORIGIN}/?id=${CAMPUS_MAP_ID}&sbh&tbh&mbh&mch${CAMPUS_OVERVIEW_HASH}`;
+    return embedUrl(CAMPUS_MAP_ID, CAMPUS_OVERVIEW_HASH);
   }
 }
 
 function currentLocationMapUrl(latitude: number, longitude: number): string {
   const lat = latitude.toFixed(6);
   const lng = longitude.toFixed(6);
-  return `${CAMPUS_MAP_ORIGIN}/?id=${CAMPUS_MAP_ID}&sbh&tbh&mbh&mch#!mc/${lat},${lng}?z/19?fls/`;
+  return embedUrl(CAMPUS_MAP_ID, `#!mc/${lat},${lng}?z/19?fls/`);
 }
 
 function markerIdFromMapUrl(rawUrl: string): string | null {
