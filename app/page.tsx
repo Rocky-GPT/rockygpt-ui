@@ -31,7 +31,7 @@ import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { bindGlobalTapHaptics, destroyHaptics, triggerHaptic } from '@/lib/haptics';
-import { useKeyboardInset } from '@/lib/visual-viewport';
+import { useViewportBand } from '@/lib/visual-viewport';
 import { MAX_HISTORY_MESSAGES, MAX_MESSAGE_LENGTH, type ChatTurnV2 } from '@/lib/brain-api';
 import { rockyModeCommandForMessage } from '../chat/rocky-mode';
 import { DevPageMenu } from '@/components/DevPageMenu';
@@ -572,7 +572,7 @@ export default function Home() {
   // Publishes `--keyboard-inset` for as long as this page is mounted. The
   // composer and the modal shell read it from CSS; subscribing here is what
   // keeps it measured, and one subscription is all the measurement needs.
-  useKeyboardInset();
+  useViewportBand();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -1990,9 +1990,22 @@ export default function Home() {
         is silently discarded. On a fixed element `bottom` repositions this box
         alone — the thread behind it does not reflow or scroll.
       */}
+      {/*
+        Two elements because two things want `transform`. The outer one spans
+        the visible band and holds the composer against its floor; the inner
+        one keeps the entrance animation, which owns `transform` with a `both`
+        fill and would otherwise overwrite any positioning written there — a
+        running animation outranks an inline style, silently.
+      */}
       <div
-        style={{ bottom: 'var(--keyboard-inset, 0px)' }}
-        className={`fixed inset-x-0 z-[70] bg-gradient-to-t from-background via-background to-transparent px-2 pb-4 pt-6 sm:px-4 ${isSplashDismissed ? 'animate-hero-input' : 'opacity-0'}`}
+        style={{
+          top: 'var(--viewport-top, 0px)',
+          height: 'var(--viewport-height, 100dvh)',
+        }}
+        className="pointer-events-none fixed inset-x-0 z-[70] flex flex-col justify-end"
+      >
+        <div
+        className={`pointer-events-auto bg-gradient-to-t from-background via-background to-transparent px-2 pb-4 pt-6 sm:px-4 ${isSplashDismissed ? 'animate-hero-input' : 'opacity-0'}`}
       >
         {/*
           A list, not a row of chips. A chip row scrolls sideways, so the third
@@ -2233,6 +2246,7 @@ export default function Home() {
             Built for Roadrunners. Ask, explore, and verify.
           </p>
         </div>
+      </div>
       </div>
 
       <MenuModal

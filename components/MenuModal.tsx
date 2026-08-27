@@ -408,7 +408,7 @@ function FoodPreviewModal({ item, onClose }: { item: MenuItem; onClose: () => vo
   const dialogRef = useAccessibleDialog(true, onClose);
 
   return (
-    <div className="fixed inset-x-0 top-0 bottom-[var(--keyboard-inset,0px)] z-[110] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+    <div className="fixed inset-x-0 top-[var(--viewport-top,0px)] h-[var(--viewport-height,100dvh)] z-[110] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
        <div className="absolute inset-0" onClick={onClose} />
        
        <div
