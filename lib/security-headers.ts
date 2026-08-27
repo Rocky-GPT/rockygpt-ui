@@ -64,7 +64,13 @@ export function buildContentSecurityPolicy(options: SecurityHeaderOptions = {}):
     "img-src 'self' data: blob: https:",
     "font-src 'self' data:",
     `connect-src 'self'${isDevelopment ? ' ws: wss:' : ''}`,
-    "frame-src https://www.ramapo.edu",
+    // Both campus-map hosts, because the college's own URL crosses between
+    // them. `www.ramapo.edu/map/` is a stub whose whole body is a meta-refresh
+    // to `map.ramapo.edu`, so allowing only the first framed a page that
+    // immediately navigated somewhere blocked, and every map — all five layers
+    // and all 207 locations, which still carry the old path — drew blank.
+    // Named hosts, not a wildcard: this is the map and nothing else.
+    "frame-src https://www.ramapo.edu https://map.ramapo.edu",
     "media-src 'self' blob:",
     "manifest-src 'self'",
     "worker-src 'self' blob:",
