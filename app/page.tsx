@@ -568,7 +568,10 @@ async function chatFailureFromResponse(response: Response): Promise<ChatRequestF
     // `public_message` is that field's whole job — so overwriting it with one
     // sentence about being "temporarily unavailable" turns a permanent gap
     // into an outage and offers a retry that can only fail.
-    const said = typeof payload.error === 'object' ? payload.error?.message?.trim() : undefined;
+    const said =
+      typeof payload.error === 'object' && code !== 'SERVICE_UNAVAILABLE'
+        ? payload.error?.message?.trim()
+        : undefined;
     const retryable =
       typeof payload.error === 'object' ? payload.error?.retryable !== false : true;
     return new ChatRequestFailure(
@@ -2201,7 +2204,7 @@ export default function Home() {
             <button
               type="button"
               onClick={handleExportClick}
-              aria-label="Copy full chat brain IN and OUT JSON"
+              aria-label="Copy transcript (click to copy full chat JSON, double-click to download)"
               title="Click to copy all brain IN/OUT turns; double-click to download transcript"
               className={`flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl border transition-colors cursor-pointer ${
                 copyTranscriptState === 'copied'
