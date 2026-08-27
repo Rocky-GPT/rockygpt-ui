@@ -569,6 +569,18 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
                     ref={searchInputRef}
                     aria-label="Search campus map"
                     value={search}
+                    // Nothing is submitted from here: a place is chosen from
+                    // the list or it is not chosen. Return therefore commits
+                    // nothing and only puts the keyboard away, which is what
+                    // the hint promises and what iOS draws its own Done button
+                    // above the keys to do. The accessory bar cannot be hidden
+                    // from a web page, so the least it can do is not lie.
+                    enterKeyHint="done"
+                    onKeyDown={(event) => {
+                      if (event.key !== 'Enter') return;
+                      event.preventDefault();
+                      searchInputRef.current?.blur();
+                    }}
                     onFocus={() => setIsDirectoryOpen(true)}
                     onChange={(event) => setSearch(event.target.value)}
                     placeholder={selectedSummaryLocation?.name ?? 'Search the campus map'}

@@ -170,6 +170,29 @@ test('the campus directory opens on search focus and collapses after selection',
   await expect(resultsPanel).toBeVisible();
 });
 
+test('Return commits nothing and only dismisses the keyboard', async ({ page }) => {
+  await prepareMap(page);
+  await page.goto('/');
+
+  await page.getByRole('button', { name: 'Campus Map', exact: true }).first().click();
+  const dialog = page.getByRole('dialog', { name: 'Campus map' });
+  const search = dialog.getByRole('textbox', { name: 'Search campus map' });
+  const before = await dialog.locator('iframe').getAttribute('src');
+
+  await search.click();
+  await search.fill('Davidson');
+  await expect(dialog.getByRole('button', { name: /Davidson Center/ })).toBeVisible();
+
+  await search.press('Enter');
+
+  // A place is chosen from the list or it is not chosen: pressing Return picks
+  // nothing, navigates nowhere, and leaves the query and its results standing.
+  await expect(dialog.locator('iframe')).toHaveAttribute('src', before ?? '');
+  await expect(search).toHaveValue('Davidson');
+  await expect(dialog.getByRole('button', { name: /Davidson Center/ })).toBeVisible();
+  await expect(search).not.toBeFocused();
+});
+
 test('Concept3D marker clicks select the matching campus location', async ({ page }) => {
   await prepareMap(page);
   await page.goto('/');
