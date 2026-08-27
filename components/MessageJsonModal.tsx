@@ -201,6 +201,11 @@ const STAGES: ReadonlyArray<{
     title: 'BRAIN #2 · plan',
     select: (p) => withMarkedRouting(p.plan),
   },
+  {
+    key: 'normalizedPlan',
+    title: 'PYTHON · normalize the plan',
+    omitWhenEmpty: true,
+  },
   { key: 'execution', title: 'PYTHON · execute the lane' },
   // The memory is reference rather than pipeline: carried on every request
   // whether it matters or not, empty on a first turn and long on a tenth.

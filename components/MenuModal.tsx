@@ -65,10 +65,13 @@ interface Meal {
 }
 
 interface MenuApiResponse {
-  content?: string;
+  content?: string | null;
   success?: boolean;
+  available?: boolean;
+  closed?: boolean;
+  closureReason?: string;
   generatedUtc?: string | null;
-  fileUpdatedUtc?: string;
+  fileUpdatedUtc?: string | null;
 }
 
 // Hours Data Types
@@ -461,6 +464,7 @@ export function MenuModal({ isOpen, onClose, defaultMeal }: MenuModalProps) {
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
   const [, setMenuUpdatedUtc] = useState<string | null>(null);
   const [menuUnavailable, setMenuUnavailable] = useState(false);
+  const [menuClosed, setMenuClosed] = useState<{ closed: boolean; reason?: string } | null>(null);
   const [diningHours, setDiningHours] = useState<DiningHoursResponse | null>(null);
   const [hoursLoading, setHoursLoading] = useState(true);
   const [selectedDayOffset, setSelectedDayOffset] = useState(0);
@@ -497,11 +501,14 @@ export function MenuModal({ isOpen, onClose, defaultMeal }: MenuModalProps) {
     const isCurrent = () => menuRequestSeq.current === requestSeq;
     setLoading(true);
     setMenuUnavailable(false);
+    setMenuClosed(null);
     setData([]);
     setActiveTab('');
 
     try {
       let content: string | null = null;
+      let closed = false;
+      let closureReason: string | undefined = undefined;
 
       if (dayOffset === 0) {
         // Today — use the pre-fetched local endpoint
@@ -509,6 +516,8 @@ export function MenuModal({ isOpen, onClose, defaultMeal }: MenuModalProps) {
         const resData: MenuApiResponse = await res.json();
         if (!isCurrent()) return;
         content = resData.content ?? null;
+        closed = Boolean(resData.closed);
+        closureReason = resData.closureReason;
         const updatedValue = typeof resData.generatedUtc === 'string' && resData.generatedUtc.trim().length > 0
           ? resData.generatedUtc.trim()
           : (typeof resData.fileUpdatedUtc === 'string' ? resData.fileUpdatedUtc : null);
@@ -516,12 +525,18 @@ export function MenuModal({ isOpen, onClose, defaultMeal }: MenuModalProps) {
       } else {
         // Future day — proxy through Sodexo
         const res = await fetch(`/api/menu/browse?date=${dateParam}`);
-        const resData = await res.json();
+        const resData: MenuApiResponse = await res.json();
         if (!isCurrent()) return;
+        closed = Boolean(resData.closed);
+        closureReason = resData.closureReason;
         if (resData.available && resData.content) {
           content = resData.content;
         }
         setMenuUpdatedUtc(null);
+      }
+
+      if (closed) {
+        setMenuClosed({ closed: true, reason: closureReason || 'Seasonal closure' });
       }
 
       if (content) {
@@ -782,7 +797,7 @@ export function MenuModal({ isOpen, onClose, defaultMeal }: MenuModalProps) {
                       </div>
                   ) : activeTab === 'Hours' ? (
                       <div className="space-y-4 max-w-3xl mx-auto">
-                        {menuUnavailable && (
+                        {menuClosed?.closed ? (
                           <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 text-center mb-2">
                             <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">
                               {selectedDayOffset === 0
@@ -790,10 +805,21 @@ export function MenuModal({ isOpen, onClose, defaultMeal }: MenuModalProps) {
                                 : `Birch Tree Inn is Closed on ${selectedDateLabel}`}
                             </p>
                             <p className="text-xs text-muted-foreground mt-1">
-                              The dining hall is closed (seasonal closure). No meals or food items are being served.
+                              The dining hall is closed ({menuClosed.reason || 'seasonal closure'}). No meals or food items are being served.
                             </p>
                           </div>
-                        )}
+                        ) : menuUnavailable ? (
+                          <div className="bg-muted/40 border border-border/60 rounded-xl p-4 text-center mb-2">
+                            <p className="text-sm font-semibold text-foreground">
+                              {selectedDayOffset === 0
+                                ? 'No Menu Published Today'
+                                : `No Menu Published for ${selectedDateLabel}`}
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              The menu for this date is not yet available. See operating hours below.
+                            </p>
+                          </div>
+                        ) : null}
 
                         {hoursLoading ? (
                           <div className="flex flex-col items-center justify-center py-12 gap-3 text-muted-foreground">
