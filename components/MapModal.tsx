@@ -17,6 +17,7 @@ const CAMPUS_MAP_KEY = 'layer_campus_map';
 const CAMPUS_MAP_ID = '2292';
 const CAMPUS_MAP_ORIGIN = 'https://map.ramapo.edu';
 const CAMPUS_OVERVIEW_HASH = '#!ct/99549,99550,99551';
+const MAP_SELECTION_RESET_MS = 650;
 
 type LocationStatus =
   | { state: 'idle'; message: '' }
@@ -131,7 +132,7 @@ function filterLocations(locations: MapLocation[], query: string): MapLocation[]
 }
 
 function cleanMapEmbedUrl(rawUrl: string): string {
-  if (!rawUrl) return `${CAMPUS_MAP_ORIGIN}/?id=${CAMPUS_MAP_ID}&sbh&tbh${CAMPUS_OVERVIEW_HASH}`;
+  if (!rawUrl) return `${CAMPUS_MAP_ORIGIN}/?id=${CAMPUS_MAP_ID}&sbh&tbh&mbh&mch${CAMPUS_OVERVIEW_HASH}`;
   try {
     const url = new URL(rawUrl);
     const requestedId = url.searchParams.get('id');
@@ -139,18 +140,19 @@ function cleanMapEmbedUrl(rawUrl: string): string {
     // Strip sidebar control query params embedded in hash
     let hash = url.hash.replace(/\?sbc\/?/, '').replace(/\?sbh\/?/, '');
     if (!hash || hash === '#!') hash = CAMPUS_OVERVIEW_HASH;
-    // `sbh` and `tbh` are Concept3D's documented embed controls. Keeping the
-    // branded Ramapo host also keeps this URL aligned with the app's frame CSP.
-    return `${CAMPUS_MAP_ORIGIN}/?id=${id}&sbh&tbh${hash}`;
+    // `mbh` suppresses Concept3D's native marker panel so RockyGPT can own the
+    // surrounding location UI. `sbh`, `tbh`, and `mch` hide the remaining map
+    // chrome, including the home, layer, and zoom control stack.
+    return `${CAMPUS_MAP_ORIGIN}/?id=${id}&sbh&tbh&mbh&mch${hash}`;
   } catch {
-    return `${CAMPUS_MAP_ORIGIN}/?id=${CAMPUS_MAP_ID}&sbh&tbh${CAMPUS_OVERVIEW_HASH}`;
+    return `${CAMPUS_MAP_ORIGIN}/?id=${CAMPUS_MAP_ID}&sbh&tbh&mbh&mch${CAMPUS_OVERVIEW_HASH}`;
   }
 }
 
 function currentLocationMapUrl(latitude: number, longitude: number): string {
   const lat = latitude.toFixed(6);
   const lng = longitude.toFixed(6);
-  return `${CAMPUS_MAP_ORIGIN}/?id=${CAMPUS_MAP_ID}&sbh&tbh#!mc/${lat},${lng}?z/19?fls/`;
+  return `${CAMPUS_MAP_ORIGIN}/?id=${CAMPUS_MAP_ID}&sbh&tbh&mbh&mch#!mc/${lat},${lng}?z/19?fls/`;
 }
 
 function markerIdFromMapUrl(rawUrl: string): string | null {
@@ -181,10 +183,15 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
   const dialogRef = useAccessibleDialog(isOpen, onClose);
   const selectedItemRef = useRef<HTMLButtonElement | null>(null);
   const mapFrameRef = useRef<HTMLIFrameElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const mapTransitionTimerRef = useRef<number | null>(null);
   const [search, setSearch] = useState('');
+  const [isDirectoryOpen, setIsDirectoryOpen] = useState(false);
   const [locations, setLocations] = useState<MapLocation[]>([]);
   const [selectedKey, setSelectedKey] = useState<string>(initialLocationKey ?? CAMPUS_MAP_KEY);
+  const [selectedSummaryKey, setSelectedSummaryKey] = useState<string | null>(null);
   const [currentLocationUrl, setCurrentLocationUrl] = useState<string | null>(null);
+  const [transitionMapUrl, setTransitionMapUrl] = useState<string | null>(null);
   const [locationStatus, setLocationStatus] = useState<LocationStatus>({ state: 'idle', message: '' });
   const [collapsedSections, setCollapsedSections] = useState<Record<MapLocation['type'], boolean>>(
     () => createDefaultCollapsedState(),
@@ -208,6 +215,14 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
     }
     return markerLocations;
   }, [locations]);
+
+  useEffect(() => {
+    return () => {
+      if (mapTransitionTimerRef.current !== null) {
+        window.clearTimeout(mapTransitionTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -238,6 +253,7 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
         const resolved = locationByKey.get(initialLocationKey) ?? filterLocations(locations, initialLocationKey)[0];
         if (resolved) {
           setSelectedKey(resolved.key);
+          setSelectedSummaryKey(resolved.key);
           setCollapsedSections((prev) => ({
             ...prev,
             [resolved.type]: false,
@@ -246,7 +262,16 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
       }
     } else {
       document.body.style.overflow = 'unset';
+      if (mapTransitionTimerRef.current !== null) {
+        window.clearTimeout(mapTransitionTimerRef.current);
+        mapTransitionTimerRef.current = null;
+      }
+      setSearch('');
+      setIsDirectoryOpen(false);
+      setSelectedKey(CAMPUS_MAP_KEY);
+      setSelectedSummaryKey(null);
       setCurrentLocationUrl(null);
+      setTransitionMapUrl(null);
       setLocationStatus({ state: 'idle', message: '' });
     }
     return () => {
@@ -270,9 +295,18 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
       const location = locationByMarkerId.get(String(message.id));
       if (!location) return;
 
+      if (mapTransitionTimerRef.current !== null) {
+        window.clearTimeout(mapTransitionTimerRef.current);
+        mapTransitionTimerRef.current = null;
+      }
       setCurrentLocationUrl(null);
+      setTransitionMapUrl(null);
       setLocationStatus({ state: 'idle', message: '' });
+      setSearch('');
+      setIsDirectoryOpen(false);
+      searchInputRef.current?.blur();
       setSelectedKey(location.key);
+      setSelectedSummaryKey(location.key);
       setCollapsedSections((previous) => ({
         ...previous,
         [location.type]: false,
@@ -283,7 +317,15 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
     return () => window.removeEventListener('message', handleMapMessage);
   }, [isOpen, locationByMarkerId]);
 
-  const filteredLocations = useMemo(() => filterLocations(locations, search), [locations, search]);
+  const filteredLocations = useMemo(
+    () => (isDirectoryOpen ? filterLocations(locations, search) : []),
+    [isDirectoryOpen, locations, search]
+  );
+  const selectedSummaryLocation = selectedSummaryKey
+    ? locationByKey.get(selectedSummaryKey)
+    : undefined;
+  const showResultPanel = isDirectoryOpen;
+  const useSplitResultLayout = showResultPanel && filteredLocations.length > 0;
   const groupedLocations = useMemo(() => {
     const grouped: Record<MapLocation['type'], MapLocation[]> = {
       office: [],
@@ -303,7 +345,7 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
 
   const visibleSelectedKey = filteredLocations.some((location) => location.key === selectedKey)
     ? selectedKey
-    : (filteredLocations[0]?.key ?? CAMPUS_MAP_KEY);
+    : null;
 
   useEffect(() => {
     if (isOpen && visibleSelectedKey) {
@@ -314,20 +356,20 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
           [selectedLoc.type]: false,
         }));
       }
-      const timer = setTimeout(() => {
+      const frame = window.requestAnimationFrame(() => {
         selectedItemRef.current?.scrollIntoView({
-          behavior: 'smooth',
+          behavior: 'auto',
           block: 'center',
         });
-      }, 180);
-      return () => clearTimeout(timer);
+      });
+      return () => window.cancelAnimationFrame(frame);
     }
   }, [isOpen, visibleSelectedKey, locationByKey]);
 
-  const selectedLocation = locationByKey.get(visibleSelectedKey) ?? locationByKey.get(CAMPUS_MAP_KEY);
+  const selectedLocation = locationByKey.get(selectedKey) ?? locationByKey.get(CAMPUS_MAP_KEY);
   if (!isOpen || !selectedLocation) return null;
   const cleanEmbedUrl = cleanMapEmbedUrl(selectedLocation.mapUrl);
-  const mapEmbedUrl = currentLocationUrl ?? cleanEmbedUrl;
+  const mapEmbedUrl = currentLocationUrl ?? transitionMapUrl ?? cleanEmbedUrl;
 
   const showCurrentLocation = () => {
     if (!navigator.geolocation) {
@@ -338,13 +380,22 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
       return;
     }
 
+    setIsDirectoryOpen(false);
+    setSearch('');
+    searchInputRef.current?.blur();
+    if (mapTransitionTimerRef.current !== null) {
+      window.clearTimeout(mapTransitionTimerRef.current);
+      mapTransitionTimerRef.current = null;
+    }
+    setTransitionMapUrl(null);
     setLocationStatus({ state: 'locating', message: 'Finding your location…' });
     navigator.geolocation.getCurrentPosition(
       ({ coords }) => {
         setCurrentLocationUrl(currentLocationMapUrl(coords.latitude, coords.longitude));
+        setSelectedSummaryKey(null);
         setLocationStatus({
           state: 'shown',
-          message: 'Showing your current location. Your browser shares it with the campus map.',
+          message: 'Showing your current location on the campus map.',
         });
       },
       (error) => {
@@ -360,9 +411,28 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
   };
 
   const selectLocation = (key: string) => {
+    const targetLocation = locationByKey.get(key);
+    const overviewLocation = locationByKey.get(CAMPUS_MAP_KEY);
+    if (mapTransitionTimerRef.current !== null) {
+      window.clearTimeout(mapTransitionTimerRef.current);
+    }
+    if (targetLocation && overviewLocation) {
+      setTransitionMapUrl(cleanMapEmbedUrl(overviewLocation.mapUrl));
+      mapTransitionTimerRef.current = window.setTimeout(() => {
+        setTransitionMapUrl(cleanMapEmbedUrl(targetLocation.mapUrl));
+        mapTransitionTimerRef.current = null;
+      }, MAP_SELECTION_RESET_MS);
+    } else {
+      mapTransitionTimerRef.current = null;
+      setTransitionMapUrl(null);
+    }
     setCurrentLocationUrl(null);
     setLocationStatus({ state: 'idle', message: '' });
     setSelectedKey(key);
+    setSelectedSummaryKey(key);
+    setSearch('');
+    setIsDirectoryOpen(false);
+    searchInputRef.current?.blur();
   };
 
   return (
@@ -376,9 +446,27 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
         aria-label="Campus map"
         tabIndex={-1}
         className={MODAL_PANEL}>
-        <div className="flex-1 min-h-0 min-w-0 grid grid-rows-[minmax(0,1fr)_minmax(0,1fr)] overflow-hidden">
+        <div
+          className={`flex-1 min-h-0 min-w-0 grid overflow-hidden ${
+            useSplitResultLayout
+              ? 'grid-rows-[minmax(0,1fr)_minmax(0,1fr)]'
+              : 'grid-rows-[minmax(0,1fr)_auto]'
+          }`}
+        >
           <div className="min-h-0 min-w-0 bg-muted/20 overflow-hidden border-b border-border">
             <div className="relative h-full w-full min-w-0 overflow-hidden bg-background">
+              {showResultPanel && (
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  aria-label="Close map search results"
+                  onClick={() => {
+                    setIsDirectoryOpen(false);
+                    searchInputRef.current?.blur();
+                  }}
+                  className="absolute inset-0 z-10 cursor-grab bg-transparent"
+                />
+              )}
               <div className="absolute bottom-2 left-2 z-20 flex max-w-[calc(100%-1rem)] flex-col items-start gap-2">
                 {locationStatus.message && (
                   <p
@@ -417,9 +505,9 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
                     : `Ramapo map preview for ${selectedLocation.name}`
                 }
                 src={mapEmbedUrl}
-                // Do not delegate geolocation to Concept3D merely by opening
-                // the map. It becomes available only after the user explicitly
-                // chooses "Where am I?" and the parent request succeeds.
+                // Do not delegate geolocation merely by opening the map. It is
+                // enabled only after the explicit "Where am I?" action succeeds,
+                // allowing Concept3D to render and update its native blue dot.
                 allow={currentLocationUrl ? 'geolocation; fullscreen' : 'fullscreen'}
                 className="w-full h-full border-0 bg-muted/10"
               />
@@ -427,11 +515,15 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
           </div>
 
           <div className="min-h-0 min-w-0 flex flex-col">
-            <div className="flex-1 min-h-0 min-w-0 overflow-y-auto scrollbar-none">
-              {filteredLocations.length === 0 ? (
-                <div className="p-4 text-sm text-muted-foreground">No matches found. Try a different search term.</div>
-              ) : (
-                <div className="p-3 space-y-3">
+            {showResultPanel && (
+              <div
+                data-testid="campus-map-results"
+                className="flex-1 min-h-0 min-w-0 overflow-y-auto scrollbar-none"
+              >
+                {filteredLocations.length === 0 ? (
+                  <div className="p-4 text-sm text-muted-foreground">No matches found. Try a different search term.</div>
+                ) : (
+                  <div className="p-3 space-y-3">
                   {groupedLocations.map((section) => {
                     const isCollapsed = collapsedSections[section.type];
                     return (
@@ -466,7 +558,7 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
                         {!isCollapsed && (
                           <div id={`map-type-section-${section.type}`} className="space-y-2 px-2 pb-2">
                             {section.locations.map((location) => {
-                              const isSelected = location.key === visibleSelectedKey;
+                              const isSelected = location.key === selectedKey;
                               return (
                                 <button
                                   key={location.key}
@@ -505,20 +597,25 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
                       </section>
                     );
                   })}
-                </div>
-              )}
-            </div>
+                  </div>
+                )}
+              </div>
+            )}
 
-            <div className="min-w-0 px-6 py-3 border-t border-border bg-background/80 backdrop-blur-sm">
-              <div className="relative min-w-0">
-                <Search className="w-4 h-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  aria-label="Search campus map"
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Search buildings, offices, parking, or map layers"
-                  className="w-full min-w-0 bg-muted/60 border border-border rounded-xl pl-9 pr-3 py-2.5 text-base md:text-sm outline-none focus:ring-2 focus:ring-primary/30"
-                />
+            <div className="min-w-0 border-t border-border bg-background/80 backdrop-blur-sm">
+              <div className="min-w-0 px-4 py-3 md:px-6">
+                <div className="relative min-w-0">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    ref={searchInputRef}
+                    aria-label="Search campus map"
+                    value={search}
+                    onFocus={() => setIsDirectoryOpen(true)}
+                    onChange={(event) => setSearch(event.target.value)}
+                    placeholder={selectedSummaryLocation?.name ?? 'Search the campus map'}
+                    className="w-full min-w-0 bg-muted/60 border border-border rounded-xl pl-9 pr-3 py-2.5 text-base md:text-sm outline-none focus:ring-2 focus:ring-primary/30"
+                  />
+                </div>
               </div>
             </div>
 
