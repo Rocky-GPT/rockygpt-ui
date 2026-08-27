@@ -236,13 +236,23 @@ test('layout reflows at a 200% zoom-equivalent viewport', async ({ page }, testI
   await expectNoHighImpactAxeFindings(page, '200-percent-zoom-reflow');
 });
 
+// Who words the failure depends on the status, and the two are different
+// contracts. A 429 means one thing, so the client says it and whatever the
+// server muttered about internals stays out of the alert. A 503 does not mean
+// one thing — a lookup Rocky cannot do yet, a data service that did not
+// answer, a planner that failed — so the brain words it in `public_message`,
+// written for a student, and that is what has to reach the alert. Replacing it
+// with one sentence about being temporarily unavailable turns a permanent gap
+// into an outage and offers a retry that can only fail.
 for (const failure of [
   {
     name: 'rate limit',
     status: 429,
     code: 'RATE_LIMITED',
     supportId: '799ba60b-b8c8-4456-a363-5f22d7cbeabf',
+    said: 'Internal upstream detail',
     expectedCopy: /reached the chat limit/i,
+    unexpectedCopy: 'Internal upstream detail',
     retryAfter: '120',
   },
   {
@@ -250,7 +260,9 @@ for (const failure of [
     status: 503,
     code: 'SERVICE_UNAVAILABLE',
     supportId: '72d93425-b4e4-444f-be32-21d4f9cdd526',
-    expectedCopy: /temporarily unavailable/i,
+    said: 'Rocky could not reach campus data just now.',
+    expectedCopy: /could not reach campus data/i,
+    unexpectedCopy: 'temporarily unavailable',
     retryAfter: undefined,
   },
 ] as const) {
@@ -273,7 +285,7 @@ for (const failure of [
         },
         body: JSON.stringify({
           requestId: failure.supportId,
-          error: { code: failure.code, message: 'Internal upstream detail' },
+          error: { code: failure.code, message: failure.said },
         }),
       });
     });
@@ -282,7 +294,7 @@ for (const failure of [
     const alert = page.getByRole('alert').filter({ hasText: failure.expectedCopy });
     await expect(alert).toContainText(failure.expectedCopy);
     await expect(alert).toContainText(`Support ID: ${failure.supportId}`);
-    await expect(alert).not.toContainText('Internal upstream detail');
+    await expect(alert).not.toContainText(failure.unexpectedCopy);
 
     await alert.getByRole('button', { name: 'Try again' }).click();
     await expect(page.getByText(CHAT_ANSWER, { exact: true })).toBeVisible();
@@ -290,6 +302,30 @@ for (const failure of [
     expect(attempts).toBe(2);
   });
 }
+
+test('a 503 that says nothing still explains itself', async ({ page }) => {
+  // The client defers to `public_message` precisely because the brain writes
+  // one. A 503 carrying no message is the case that proves deferring is not
+  // the same as having nothing to say: the alert still has to read as English
+  // rather than as an empty box.
+  await page.unroute('**/api/chat');
+  await page.route('**/api/chat', async (route) => {
+    await route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      headers: { 'X-Request-Id': '0f1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9' },
+      body: JSON.stringify({
+        requestId: '0f1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9',
+        error: { code: 'SERVICE_UNAVAILABLE' },
+      }),
+    });
+  });
+
+  await submitChatQuestion(page);
+  const alert = page.getByRole('alert').filter({ hasText: /temporarily unavailable/i });
+  await expect(alert).toContainText(/temporarily unavailable/i);
+  await expect(alert).toContainText('Support ID: 0f1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9');
+});
 
 test('network failure explains the connection problem and can be retried', async ({ page }) => {
   await page.unroute('**/api/chat');
