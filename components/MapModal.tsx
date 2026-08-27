@@ -121,6 +121,19 @@ function filterLocations(locations: MapLocation[], query: string): MapLocation[]
   return ranked;
 }
 
+function cleanMapEmbedUrl(rawUrl: string): string {
+  if (!rawUrl) return 'https://map.concept3d.com/?id=2292&sb=0&tb=0&embed=true';
+  try {
+    const url = new URL(rawUrl);
+    const id = url.searchParams.get('id') || '2292';
+    // Strip sidebar control query params embedded in hash
+    const hash = url.hash.replace(/\?sbc\/?/, '').replace(/\?sbh\/?/, '');
+    return `https://map.concept3d.com/?id=${id}&sb=0&tb=0&embed=true${hash}`;
+  } catch {
+    return rawUrl;
+  }
+}
+
 /**
  * Modal for searching and opening campus map locations.
  */
@@ -133,6 +146,7 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
   const [collapsedSections, setCollapsedSections] = useState<Record<MapLocation['type'], boolean>>(
     () => createDefaultCollapsedState(),
   );
+  const [mobileTab, setMobileTab] = useState<'map' | 'list'>('map');
 
   const locationByKey = useMemo(
     () => new Map(locations.map((location) => [location.key, location])),
@@ -225,10 +239,10 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
 
   const selectedLocation = locationByKey.get(visibleSelectedKey) ?? locationByKey.get(CAMPUS_MAP_KEY);
   if (!isOpen || !selectedLocation) return null;
-  const previewMapUrl = selectedLocation.mapUrl;
+  const cleanEmbedUrl = cleanMapEmbedUrl(selectedLocation.mapUrl);
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="absolute inset-0" onClick={onClose} />
 
       <div
@@ -237,122 +251,174 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
         aria-modal="true"
         aria-label="Campus map"
         tabIndex={-1}
-        className={MODAL_PANEL}>
-        <div className="flex-1 min-h-0 min-w-0 grid grid-rows-[minmax(0,1fr)_minmax(0,1fr)] overflow-hidden">
-          <div className="min-h-0 min-w-0 bg-muted/20 overflow-hidden border-b border-border">
-            <div className="relative h-full w-full min-w-0 overflow-hidden bg-background">
-              <button
-                onClick={onClose}
-                className="absolute top-2 right-2 z-20 inline-flex items-center justify-center h-9 w-9 rounded-full bg-background/75 border border-border/70 backdrop-blur-sm text-foreground/80 hover:text-foreground hover:bg-background/90 transition-colors"
-                aria-label="Close map"
-              >
-                <X className="w-5 h-5" />
-              </button>
-              <iframe
-                title={`Ramapo map preview for ${selectedLocation.name}`}
-                src={previewMapUrl}
-                scrolling="no"
-                className="absolute left-1/2 -translate-x-[calc(50%+16px)] top-0 h-[calc(100%+240px)] w-[calc(100%+640px)] origin-top scale-[0.9] border-0 md:-translate-x-[calc(50%+12px)] md:top-0 md:h-[calc(100%+210px)] md:w-[calc(100%+560px)] md:scale-100"
-              />
+        className={`${MODAL_PANEL} max-w-5xl h-[90vh]`}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 border-b border-border bg-background shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="p-2 bg-primary/10 rounded-xl shrink-0">
+              <span className="text-primary font-bold text-base">3D</span>
+            </div>
+            <div className="min-w-0">
+              <h2 className="text-base sm:text-lg font-bold leading-tight truncate">
+                {selectedLocation.name || 'Campus Map'}
+              </h2>
+              <p className="text-xs text-muted-foreground truncate">
+                {selectedLocation.buildingName ? `In ${selectedLocation.buildingName}` : 'Ramapo College 3D Campus Map'}
+              </p>
             </div>
           </div>
 
-          <div className="min-h-0 min-w-0 flex flex-col">
-            <div className="flex-1 min-h-0 min-w-0 overflow-y-auto scrollbar-none">
-              {filteredLocations.length === 0 ? (
-                <div className="p-4 text-sm text-muted-foreground">No matches found. Try a different search term.</div>
-              ) : (
-                <div className="p-3 space-y-3">
-                  {groupedLocations.map((section) => {
-                    const isCollapsed = collapsedSections[section.type];
-                    return (
-                      <section key={section.type} className="rounded-xl border border-border/50 bg-muted/10">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setCollapsedSections((previous) => ({
-                              ...previous,
-                              [section.type]: !previous[section.type],
-                            }))
-                          }
-                          className="w-full rounded-xl px-3 py-2 text-left transition-colors hover:bg-muted/20"
-                          aria-expanded={!isCollapsed}
-                          aria-controls={`map-type-section-${section.type}`}
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2">
-                              {isCollapsed ? (
-                                <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                              ) : (
-                                <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                              )}
-                              <span className="text-xs font-semibold uppercase tracking-wide text-foreground/90">
-                                {typeLabel(section.type)}
-                              </span>
-                            </div>
-                            <span className="text-xs text-muted-foreground">{section.locations.length}</span>
-                          </div>
-                        </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <a
+              href={selectedLocation.mapUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hidden sm:inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-muted hover:bg-muted/80 text-foreground transition-colors border border-border"
+              title="Open full interactive map in new tab"
+            >
+              <span>Open in New Tab</span>
+              <svg className="w-3.5 h-3.5 opacity-70" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+            </a>
+            <button
+              onClick={onClose}
+              className="p-2 hover:bg-muted rounded-full transition-colors opacity-70 hover:opacity-100"
+              aria-label="Close map"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
 
-                        {!isCollapsed && (
-                          <div id={`map-type-section-${section.type}`} className="space-y-2 px-2 pb-2">
-                            {section.locations.map((location) => {
-                              const isSelected = location.key === visibleSelectedKey;
-                              return (
-                                <button
-                                  key={location.key}
-                                  ref={isSelected ? selectedItemRef : undefined}
-                                  onClick={() => setSelectedKey(location.key)}
-                                  className={`w-full text-left rounded-xl border px-3 py-2.5 transition-all ${
-                                    isSelected
-                                      ? 'border-[#8E0A26] bg-[#8E0A26]/15 ring-2 ring-[#8E0A26]/50 shadow-md'
-                                      : 'border-border/60 bg-muted/20 hover:bg-muted/40'
-                                  }`}
-                                >
-                                  <p className="text-sm font-semibold leading-snug">{location.name}</p>
-                                  <div className="mt-1 space-y-0.5">
-                                    {location.type === 'office' ? (
-                                      location.room ? (
-                                        <p className="text-xs text-muted-foreground">Room: {location.room}</p>
-                                      ) : (
-                                        location.buildingName && (
-                                          <p className="text-xs text-muted-foreground">In {location.buildingName}</p>
-                                        )
-                                      )
-                                    ) : (
-                                      location.buildingName && (
-                                        <p className="text-xs text-muted-foreground">In {location.buildingName}</p>
-                                      )
-                                    )}
-                                    {location.description && (
-                                      <p className="text-xs text-muted-foreground">{location.description}</p>
-                                    )}
-                                  </div>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </section>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+        {/* Mobile View Toggle */}
+        <div className="flex md:hidden border-b border-border bg-muted/40 p-1.5 shrink-0">
+          <button
+            onClick={() => setMobileTab('map')}
+            className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
+              mobileTab === 'map' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground'
+            }`}
+          >
+            3D Map View
+          </button>
+          <button
+            onClick={() => setMobileTab('list')}
+            className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
+              mobileTab === 'list' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground'
+            }`}
+          >
+            Directory & Search ({filteredLocations.length})
+          </button>
+        </div>
 
-            <div className="min-w-0 px-6 py-3 border-t border-border bg-background/80 backdrop-blur-sm">
-              <div className="relative min-w-0">
+        {/* Main Content Area: Side-by-side on desktop, Toggled on mobile */}
+        <div className="flex-1 min-h-0 min-w-0 flex flex-col md:flex-row overflow-hidden">
+          {/* Left Panel: Search & Location Directory */}
+          <div
+            className={`w-full md:w-80 lg:w-96 border-r border-border flex flex-col bg-muted/10 shrink-0 ${
+              mobileTab === 'list' ? 'flex' : 'hidden md:flex'
+            }`}
+          >
+            {/* Search Input */}
+            <div className="p-3 border-b border-border bg-background shrink-0">
+              <div className="relative">
                 <Search className="w-4 h-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   aria-label="Search campus map"
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Search buildings, offices, parking, or map layers"
-                  className="w-full min-w-0 bg-muted/60 border border-border rounded-xl pl-9 pr-3 py-2.5 text-base md:text-sm outline-none focus:ring-2 focus:ring-primary/30"
+                  placeholder="Search buildings, parking, offices..."
+                  className="w-full bg-muted/50 border border-border rounded-xl pl-9 pr-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30 text-foreground"
                 />
               </div>
             </div>
 
+            {/* Categorized Location List */}
+            <div className="flex-1 min-h-0 overflow-y-auto p-2.5 space-y-2.5 scrollbar-none">
+              {filteredLocations.length === 0 ? (
+                <div className="p-4 text-center text-xs text-muted-foreground">
+                  No matching locations found.
+                </div>
+              ) : (
+                groupedLocations.map((section) => {
+                  const isCollapsed = collapsedSections[section.type];
+                  return (
+                    <section key={section.type} className="rounded-xl border border-border/60 bg-background/60 overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setCollapsedSections((prev) => ({
+                            ...prev,
+                            [section.type]: !prev[section.type],
+                          }))
+                        }
+                        className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-muted/30 transition-colors"
+                        aria-expanded={!isCollapsed}
+                      >
+                        <div className="flex items-center gap-2">
+                          {isCollapsed ? (
+                            <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                          ) : (
+                            <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                          )}
+                          <span className="text-xs font-bold uppercase tracking-wider text-foreground">
+                            {typeLabel(section.type)}
+                          </span>
+                        </div>
+                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
+                          {section.locations.length}
+                        </span>
+                      </button>
+
+                      {!isCollapsed && (
+                        <div className="p-1.5 space-y-1 border-t border-border/40">
+                          {section.locations.map((location) => {
+                            const isSelected = location.key === visibleSelectedKey;
+                            return (
+                              <button
+                                key={location.key}
+                                ref={isSelected ? selectedItemRef : undefined}
+                                onClick={() => {
+                                  setSelectedKey(location.key);
+                                  setMobileTab('map');
+                                }}
+                                className={`w-full text-left rounded-lg px-2.5 py-2 transition-all ${
+                                  isSelected
+                                    ? 'bg-primary text-primary-foreground shadow-sm font-medium'
+                                    : 'hover:bg-muted text-foreground'
+                                }`}
+                              >
+                                <p className="text-xs font-semibold leading-tight">{location.name}</p>
+                                {location.buildingName && (
+                                  <p className={`text-[11px] mt-0.5 ${isSelected ? 'text-primary-foreground/80' : 'text-muted-foreground'}`}>
+                                    {location.room ? `Room ${location.room} · ` : ''}{location.buildingName}
+                                  </p>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </section>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          {/* Right Panel: Clean 3D Map Canvas */}
+          <div
+            className={`flex-1 min-h-0 min-w-0 bg-background relative overflow-hidden ${
+              mobileTab === 'map' ? 'flex' : 'hidden md:flex'
+            }`}
+          >
+            <iframe
+              title={`Ramapo 3D map view for ${selectedLocation.name}`}
+              src={cleanEmbedUrl}
+              allow="geolocation; fullscreen"
+              className="w-full h-full border-0 bg-muted/10"
+              loading="lazy"
+            />
           </div>
         </div>
       </div>
