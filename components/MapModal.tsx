@@ -10,7 +10,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAccessibleDialog } from '@/components/useAccessibleDialog';
 import { ChevronDown, ChevronRight, Loader2, LocateFixed, Search } from 'lucide-react';
 import { loadCampusData, objectWithArray } from '@/lib/campus-data';
-import { MODAL_PANEL } from '@/components/modalShell';
+import { MODAL_OVERLAY, MODAL_PANEL } from '@/components/modalShell';
 import type { MapLocation } from '@/lib/data-types';
 
 const CAMPUS_MAP_KEY = 'layer_campus_map';
@@ -436,7 +436,7 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className={MODAL_OVERLAY}>
       <div className="absolute inset-0" onClick={onClose} />
 
       <div

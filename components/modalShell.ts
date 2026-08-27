@@ -8,8 +8,20 @@
  * modal follows.
  */
 
+/**
+ * The overlay ends where the keyboard begins.
+ *
+ * Every modal centres its panel in this box, so making the box the part of the
+ * screen you can actually see is enough on its own: the panel re-centres in
+ * the visible band and stops short of the keyboard, and a search field pinned
+ * to the panel's bottom comes with it. Measured before, at 375x812, the map
+ * modal's field sat at 692-738 — under the keyboard the moment it was tapped,
+ * on a fixed panel with nothing to scroll.
+ *
+ * The page behind is untouched. Only this box knows the keyboard is there.
+ */
 export const MODAL_OVERLAY =
-  'fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200';
+  'fixed inset-x-0 top-0 bottom-[var(--keyboard-inset,0px)] z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200';
 
 /**
  * Standard panel: every top-level modal is this exact box.
@@ -21,7 +33,7 @@ export const MODAL_OVERLAY =
  * reveal it.
  */
 export const MODAL_PANEL =
-  'relative w-full max-w-4xl h-[85dvh] flex flex-col bg-background rounded-2xl border border-border shadow-2xl animate-in zoom-in-95 duration-200 overflow-hidden';
+  'relative w-full max-w-4xl h-[85dvh] max-h-full flex flex-col bg-background rounded-2xl border border-border shadow-2xl animate-in zoom-in-95 duration-200 overflow-hidden';
 
 /**
  * Variant for modals whose content is genuinely short (Campus Safety is the

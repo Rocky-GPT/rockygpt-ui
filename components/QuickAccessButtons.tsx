@@ -17,7 +17,7 @@ import Fuse from 'fuse.js';
 import { Virtuoso } from 'react-virtuoso';
 import { parseSemesterEventDate } from '@/lib/calendar-dates';
 import { anyArray, anyObject, loadCampusData, objectWithArray } from '@/lib/campus-data';
-import { MODAL_PANEL, MODAL_PANEL_SHORT } from '@/components/modalShell';
+import { MODAL_OVERLAY, MODAL_PANEL, MODAL_PANEL_SHORT } from '@/components/modalShell';
 import type {
   FacultyStaffContact,
   NormalizedDirectoryContact,
@@ -299,7 +299,7 @@ export function EventsModal({ isOpen, onClose }: ModalProps) {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className={MODAL_OVERLAY}>
       <div className="absolute inset-0" onClick={onClose} />
       <div
         ref={dialogRef}
@@ -633,7 +633,7 @@ export function DirectoryModal({ isOpen, onClose }: ModalProps) {
   ];
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className={MODAL_OVERLAY}>
       <div className="absolute inset-0" onClick={onClose} />
       <div
         ref={dialogRef}
@@ -883,7 +883,7 @@ export function SafetyModal({ isOpen, onClose }: ModalProps) {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className={MODAL_OVERLAY}>
       <div className="absolute inset-0" onClick={onClose} />
       <div
         ref={dialogRef}
@@ -1464,7 +1464,7 @@ export function ClubsModal({ isOpen, onClose }: ModalProps) {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className={MODAL_OVERLAY}>
       <div className="absolute inset-0" onClick={onClose} />
       <div
         ref={dialogRef}
@@ -1710,7 +1710,7 @@ export function CalendarModal({ isOpen, onClose }: ModalProps) {
     : [];
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className={MODAL_OVERLAY}>
       <div className="absolute inset-0" onClick={onClose} />
       <div
         ref={dialogRef}
@@ -2503,7 +2503,7 @@ export function MajorsModal({ isOpen, onClose }: ModalProps) {
     const hasGenEdReqs = genEdReqs.length > 0;
     const hasMajorReqs = majorReqs.length > 0;
     return createPortal(
-      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className={MODAL_OVERLAY}>
         <div className="absolute inset-0" onClick={onClose} />
         <div
           ref={dialogRef}
@@ -2824,7 +2824,7 @@ export function MajorsModal({ isOpen, onClose }: ModalProps) {
   }
 
   return createPortal(
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className={MODAL_OVERLAY}>
       <div className="absolute inset-0" onClick={onClose} />
       <div
         ref={dialogRef}

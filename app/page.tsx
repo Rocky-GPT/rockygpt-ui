@@ -60,6 +60,7 @@ import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { bindGlobalTapHaptics, destroyHaptics, triggerHaptic } from '@/lib/haptics';
+import { useKeyboardInset } from '@/lib/visual-viewport';
 import { MAX_HISTORY_MESSAGES, MAX_MESSAGE_LENGTH, type ChatTurnV2 } from '@/lib/brain-api';
 import { rockyModeCommandForMessage } from '../chat/rocky-mode';
 import { DevPageMenu } from '@/components/DevPageMenu';
@@ -597,6 +598,10 @@ async function chatFailureFromResponse(response: Response): Promise<ChatRequestF
  * Main RockyGPT chat page.
  */
 export default function Home() {
+  // Publishes `--keyboard-inset` for as long as this page is mounted. The
+  // composer and the modal shell read it from CSS; subscribing here is what
+  // keeps it measured, and one subscription is all the measurement needs.
+  useKeyboardInset();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -2002,7 +2007,18 @@ export default function Home() {
       )}
 
       {/* Input Area */}
-      <div className={`fixed inset-x-0 bottom-0 z-[70] bg-gradient-to-t from-background via-background to-transparent px-2 pb-4 pt-6 sm:px-4 ${isSplashDismissed ? 'animate-hero-input' : 'opacity-0'}`}>
+      {/*
+        Sits exactly as far above the bottom as the keyboard is tall, and
+        nothing else on the page moves with it. `bottom` and not a transform:
+        the entrance animation already owns `transform` with `both`, and a
+        running animation outranks an inline style, so a lift written that way
+        is silently discarded. On a fixed element `bottom` repositions this box
+        alone — the thread behind it does not reflow or scroll.
+      */}
+      <div
+        style={{ bottom: 'var(--keyboard-inset, 0px)' }}
+        className={`fixed inset-x-0 z-[70] bg-gradient-to-t from-background via-background to-transparent px-2 pb-4 pt-6 sm:px-4 ${isSplashDismissed ? 'animate-hero-input' : 'opacity-0'}`}
+      >
         {composerSuggestedQuestions.length > 0 && (
           <div
             aria-hidden={!shouldShowComposerSuggestions}
