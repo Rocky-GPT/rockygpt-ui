@@ -28,44 +28,50 @@
 
 import { useSyncExternalStore } from 'react';
 
-/** Published on `document.documentElement` for CSS to read. */
-export const KEYBOARD_INSET_PROPERTY = '--keyboard-inset';
+/**
+ * Where the visible band starts, and how tall it is — both in the coordinates
+ * a `fixed` element is positioned in.
+ *
+ * Published as a pair rather than as one "keyboard height" because every way
+ * of computing that height needs a layout-viewport height to subtract from,
+ * and on iOS there is no trustworthy one to use. `innerHeight` counts the
+ * strip behind Safari's collapsed bottom toolbar; so does
+ * `documentElement.clientHeight`. `visualViewport.height` does not. Subtract
+ * either from the other and the keyboard is charged for the toolbar as well,
+ * which is a toolbar's worth of dead space under anything meant to sit on the
+ * keys — twice now.
+ *
+ * These two need no subtraction. `offsetTop` and `height` describe the visible
+ * band directly, so an element given both is placed against what is actually
+ * on screen and never against a number that might include chrome.
+ */
+export const VIEWPORT_TOP_PROPERTY = '--viewport-top';
+export const VIEWPORT_HEIGHT_PROPERTY = '--viewport-height';
 
-/** Sub-pixel drift is not a keyboard; below this the inset reads as zero. */
-const NOISE_FLOOR = 1;
+interface Band {
+  top: number;
+  height: number;
+}
 
-let inset = 0;
+let band: Band = { top: 0, height: 0 };
 let listening = false;
 const readers = new Set<() => void>();
 
-/**
- * The height the keyboard covers, in CSS pixels.
- *
- * `offsetTop` matters as much as `height`: iOS scrolls the visual viewport
- * within the layout viewport to keep a focused field visible, so the covered
- * strip is what remains below the visible band, not simply the height lost.
- *
- * Measured against `documentElement.clientHeight` rather than
- * `window.innerHeight`, because only the first is the box a `fixed` element is
- * positioned inside. On iOS Safari `innerHeight` also counts the strip behind
- * the collapsed bottom toolbar, which `visualViewport.height` does not, so
- * subtracting one from the other charged the keyboard for the toolbar too —
- * about seventy pixels of dead space between a panel and the keys it was
- * supposed to be sitting on.
- */
-function measure(): number {
+function measure(): Band {
   const viewport = window.visualViewport;
-  if (!viewport) return 0;
-  const layout = document.documentElement.clientHeight || window.innerHeight;
-  const covered = layout - (viewport.height + viewport.offsetTop);
-  return covered > NOISE_FLOOR ? Math.round(covered) : 0;
+  if (!viewport) {
+    return { top: 0, height: document.documentElement.clientHeight };
+  }
+  return { top: Math.round(viewport.offsetTop), height: Math.round(viewport.height) };
 }
 
 function publish(): void {
   const next = measure();
-  if (next === inset) return;
-  inset = next;
-  document.documentElement.style.setProperty(KEYBOARD_INSET_PROPERTY, `${next}px`);
+  if (next.top === band.top && next.height === band.height) return;
+  band = next;
+  const style = document.documentElement.style;
+  style.setProperty(VIEWPORT_TOP_PROPERTY, `${next.top}px`);
+  style.setProperty(VIEWPORT_HEIGHT_PROPERTY, `${next.height}px`);
   for (const reader of readers) reader();
 }
 
@@ -89,14 +95,17 @@ function subscribe(onChange: () => void): () => void {
     viewport.removeEventListener('scroll', publish);
     window.removeEventListener('orientationchange', publish);
     // Leave nothing behind claiming a keyboard is up.
-    document.documentElement.style.removeProperty(KEYBOARD_INSET_PROPERTY);
-    inset = 0;
+    const style = document.documentElement.style;
+    style.removeProperty(VIEWPORT_TOP_PROPERTY);
+    style.removeProperty(VIEWPORT_HEIGHT_PROPERTY);
+    band = { top: 0, height: 0 };
   };
 }
 
-const read = (): number => inset;
-/** Zero on the server, where there is no keyboard and no viewport to ask. */
-const readOnServer = (): number => 0;
+const read = (): Band => band;
+/** Nothing to measure on the server, where there is no viewport to ask. */
+const SERVER_BAND: Band = { top: 0, height: 0 };
+const readOnServer = (): Band => SERVER_BAND;
 
 /**
  * Subscribe to the keyboard inset, and keep `--keyboard-inset` published while
@@ -106,6 +115,6 @@ const readOnServer = (): number => 0;
  * anywhere below can use the variable without subscribing to anything. The
  * returned number is for the cases that need it in JavaScript.
  */
-export function useKeyboardInset(): number {
+export function useViewportBand(): Band {
   return useSyncExternalStore(subscribe, read, readOnServer);
 }

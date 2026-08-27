@@ -9,7 +9,7 @@
  */
 
 /**
- * The overlay ends where the keyboard begins.
+ * The overlay is exactly the part of the screen you can see.
  *
  * Every modal centres its panel in this box, so making the box the part of the
  * screen you can actually see is enough on its own: the panel re-centres in
@@ -18,10 +18,14 @@
  * modal's field sat at 692-738 — under the keyboard the moment it was tapped,
  * on a fixed panel with nothing to scroll.
  *
+ * Given the visible band's top and height rather than an inset from the
+ * bottom, because the bottom of the layout viewport is the one measurement iOS
+ * will not report honestly while the keyboard is up.
+ *
  * The page behind is untouched. Only this box knows the keyboard is there.
  */
 export const MODAL_OVERLAY =
-  'fixed inset-x-0 top-0 bottom-[var(--keyboard-inset,0px)] z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200';
+  'fixed inset-x-0 top-[var(--viewport-top,0px)] h-[var(--viewport-height,100dvh)] z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200';
 
 /**
  * Standard panel: every top-level modal is this exact box.
