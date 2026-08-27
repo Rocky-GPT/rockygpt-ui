@@ -122,12 +122,17 @@ function filterLocations(locations: MapLocation[], query: string): MapLocation[]
 }
 
 function cleanMapEmbedUrl(rawUrl: string): string {
-  if (!rawUrl) return 'https://map.concept3d.com/?id=2292&sb=0&tb=0&embed=true';
+  if (!rawUrl) return 'https://map.concept3d.com/?id=2292&sb=0&tb=0&embed=true#!m/1133343';
   try {
     const url = new URL(rawUrl);
     const id = url.searchParams.get('id') || '2292';
     // Strip sidebar control query params embedded in hash
-    const hash = url.hash.replace(/\?sbc\/?/, '').replace(/\?sbh\/?/, '');
+    let hash = url.hash.replace(/\?sbc\/?/, '').replace(/\?sbh\/?/, '');
+    // If the hash only has broad categories (#!ct/...) or is empty, focus on central campus core (Student Center: 1133343)
+    // so it starts directly in 3D close-up rather than zooming out to the highway and county
+    if (!hash || hash === '#!' || hash.startsWith('#!ct/')) {
+      hash = '#!m/1133343';
+    }
     return `https://map.concept3d.com/?id=${id}&sb=0&tb=0&embed=true${hash}`;
   } catch {
     return rawUrl;
