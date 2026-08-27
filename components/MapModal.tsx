@@ -8,12 +8,21 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAccessibleDialog } from '@/components/useAccessibleDialog';
-import { ChevronDown, ChevronRight, Search, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, Loader2, LocateFixed, Search } from 'lucide-react';
 import { loadCampusData, objectWithArray } from '@/lib/campus-data';
 import { MODAL_PANEL } from '@/components/modalShell';
 import type { MapLocation } from '@/lib/data-types';
 
 const CAMPUS_MAP_KEY = 'layer_campus_map';
+const CAMPUS_MAP_ID = '2292';
+const CAMPUS_MAP_ORIGIN = 'https://map.ramapo.edu';
+const CAMPUS_OVERVIEW_HASH = '#!ct/99549,99550,99551';
+
+type LocationStatus =
+  | { state: 'idle'; message: '' }
+  | { state: 'locating'; message: string }
+  | { state: 'shown'; message: string }
+  | { state: 'error'; message: string };
 
 interface MapModalProps {
   isOpen: boolean;
@@ -122,21 +131,47 @@ function filterLocations(locations: MapLocation[], query: string): MapLocation[]
 }
 
 function cleanMapEmbedUrl(rawUrl: string): string {
-  if (!rawUrl) return 'https://map.concept3d.com/?id=2292&sb=0&tb=0&embed=true#!m/1133343';
+  if (!rawUrl) return `${CAMPUS_MAP_ORIGIN}/?id=${CAMPUS_MAP_ID}&sbh&tbh${CAMPUS_OVERVIEW_HASH}`;
   try {
     const url = new URL(rawUrl);
-    const id = url.searchParams.get('id') || '2292';
+    const requestedId = url.searchParams.get('id');
+    const id = requestedId && /^\d+$/.test(requestedId) ? requestedId : CAMPUS_MAP_ID;
     // Strip sidebar control query params embedded in hash
     let hash = url.hash.replace(/\?sbc\/?/, '').replace(/\?sbh\/?/, '');
-    // If the hash only has broad categories (#!ct/...) or is empty, focus on central campus core (Student Center: 1133343)
-    // so it starts directly in 3D close-up rather than zooming out to the highway and county
-    if (!hash || hash === '#!' || hash.startsWith('#!ct/')) {
-      hash = '#!m/1133343';
-    }
-    return `https://map.concept3d.com/?id=${id}&sb=0&tb=0&embed=true${hash}`;
+    if (!hash || hash === '#!') hash = CAMPUS_OVERVIEW_HASH;
+    // `sbh` and `tbh` are Concept3D's documented embed controls. Keeping the
+    // branded Ramapo host also keeps this URL aligned with the app's frame CSP.
+    return `${CAMPUS_MAP_ORIGIN}/?id=${id}&sbh&tbh${hash}`;
   } catch {
-    return rawUrl;
+    return `${CAMPUS_MAP_ORIGIN}/?id=${CAMPUS_MAP_ID}&sbh&tbh${CAMPUS_OVERVIEW_HASH}`;
   }
+}
+
+function currentLocationMapUrl(latitude: number, longitude: number): string {
+  const lat = latitude.toFixed(6);
+  const lng = longitude.toFixed(6);
+  return `${CAMPUS_MAP_ORIGIN}/?id=${CAMPUS_MAP_ID}&sbh&tbh#!mc/${lat},${lng}?z/19?fls/`;
+}
+
+function markerIdFromMapUrl(rawUrl: string): string | null {
+  try {
+    return new URL(rawUrl).hash.match(/^#!m\/(\d+)/)?.[1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function geolocationErrorMessage(error: GeolocationPositionError): string {
+  if (error.code === error.PERMISSION_DENIED) {
+    return 'Location access was denied. Allow it in your browser settings and try again.';
+  }
+  if (error.code === error.POSITION_UNAVAILABLE) {
+    return 'Your location is unavailable right now. Check location services and try again.';
+  }
+  if (error.code === error.TIMEOUT) {
+    return 'Finding your location took too long. Move somewhere with a clearer signal and try again.';
+  }
+  return 'Your location could not be found. Please try again.';
 }
 
 /**
@@ -145,9 +180,12 @@ function cleanMapEmbedUrl(rawUrl: string): string {
 export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps) {
   const dialogRef = useAccessibleDialog(isOpen, onClose);
   const selectedItemRef = useRef<HTMLButtonElement | null>(null);
+  const mapFrameRef = useRef<HTMLIFrameElement | null>(null);
   const [search, setSearch] = useState('');
   const [locations, setLocations] = useState<MapLocation[]>([]);
   const [selectedKey, setSelectedKey] = useState<string>(initialLocationKey ?? CAMPUS_MAP_KEY);
+  const [currentLocationUrl, setCurrentLocationUrl] = useState<string | null>(null);
+  const [locationStatus, setLocationStatus] = useState<LocationStatus>({ state: 'idle', message: '' });
   const [collapsedSections, setCollapsedSections] = useState<Record<MapLocation['type'], boolean>>(
     () => createDefaultCollapsedState(),
   );
@@ -156,6 +194,20 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
     () => new Map(locations.map((location) => [location.key, location])),
     [locations]
   );
+  const locationByMarkerId = useMemo(() => {
+    const markerLocations = new Map<string, MapLocation>();
+    for (const location of locations) {
+      const markerId = markerIdFromMapUrl(location.mapUrl);
+      if (!markerId) continue;
+      const existing = markerLocations.get(markerId);
+      // Offices can share their building's marker. Select the building entry
+      // when the map itself reports that marker so the list stays intuitive.
+      if (!existing || (location.type === 'building' && existing.type !== 'building')) {
+        markerLocations.set(markerId, location);
+      }
+    }
+    return markerLocations;
+  }, [locations]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -194,11 +246,42 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
       }
     } else {
       document.body.style.overflow = 'unset';
+      setCurrentLocationUrl(null);
+      setLocationStatus({ state: 'idle', message: '' });
     }
     return () => {
       document.body.style.overflow = 'unset';
     };
   }, [isOpen, initialLocationKey, locationByKey, locations]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleMapMessage = (event: MessageEvent<unknown>) => {
+      if (event.origin !== CAMPUS_MAP_ORIGIN || event.source !== mapFrameRef.current?.contentWindow) {
+        return;
+      }
+      if (!event.data || typeof event.data !== 'object') return;
+
+      const message = event.data as { type?: unknown; id?: unknown };
+      if (message.type !== 'c3dMarkerClick') return;
+      if (typeof message.id !== 'string' && typeof message.id !== 'number') return;
+
+      const location = locationByMarkerId.get(String(message.id));
+      if (!location) return;
+
+      setCurrentLocationUrl(null);
+      setLocationStatus({ state: 'idle', message: '' });
+      setSelectedKey(location.key);
+      setCollapsedSections((previous) => ({
+        ...previous,
+        [location.type]: false,
+      }));
+    };
+
+    window.addEventListener('message', handleMapMessage);
+    return () => window.removeEventListener('message', handleMapMessage);
+  }, [isOpen, locationByMarkerId]);
 
   const filteredLocations = useMemo(() => filterLocations(locations, search), [locations, search]);
   const groupedLocations = useMemo(() => {
@@ -244,6 +327,43 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
   const selectedLocation = locationByKey.get(visibleSelectedKey) ?? locationByKey.get(CAMPUS_MAP_KEY);
   if (!isOpen || !selectedLocation) return null;
   const cleanEmbedUrl = cleanMapEmbedUrl(selectedLocation.mapUrl);
+  const mapEmbedUrl = currentLocationUrl ?? cleanEmbedUrl;
+
+  const showCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      setLocationStatus({
+        state: 'error',
+        message: 'This browser does not support location services.',
+      });
+      return;
+    }
+
+    setLocationStatus({ state: 'locating', message: 'Finding your location…' });
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => {
+        setCurrentLocationUrl(currentLocationMapUrl(coords.latitude, coords.longitude));
+        setLocationStatus({
+          state: 'shown',
+          message: 'Showing your current location. Your browser shares it with the campus map.',
+        });
+      },
+      (error) => {
+        setCurrentLocationUrl(null);
+        setLocationStatus({ state: 'error', message: geolocationErrorMessage(error) });
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 12_000,
+        maximumAge: 30_000,
+      }
+    );
+  };
+
+  const selectLocation = (key: string) => {
+    setCurrentLocationUrl(null);
+    setLocationStatus({ state: 'idle', message: '' });
+    setSelectedKey(key);
+  };
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
@@ -259,17 +379,48 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
         <div className="flex-1 min-h-0 min-w-0 grid grid-rows-[minmax(0,1fr)_minmax(0,1fr)] overflow-hidden">
           <div className="min-h-0 min-w-0 bg-muted/20 overflow-hidden border-b border-border">
             <div className="relative h-full w-full min-w-0 overflow-hidden bg-background">
-              <button
-                onClick={onClose}
-                className="absolute top-2 right-2 z-20 inline-flex items-center justify-center h-9 w-9 rounded-full bg-background/75 border border-border/70 backdrop-blur-sm text-foreground/80 hover:text-foreground hover:bg-background/90 transition-colors"
-                aria-label="Close map"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="absolute bottom-2 left-2 z-20 flex max-w-[calc(100%-1rem)] flex-col items-start gap-2">
+                {locationStatus.message && (
+                  <p
+                    id="campus-map-location-status"
+                    role="status"
+                    aria-live="polite"
+                    className={`max-w-sm rounded-lg border px-3 py-2 text-xs shadow-md backdrop-blur-sm ${
+                      locationStatus.state === 'error'
+                        ? 'border-destructive/40 bg-destructive/90 text-destructive-foreground'
+                        : 'border-border/70 bg-background/90 text-foreground'
+                    }`}
+                  >
+                    {locationStatus.message}
+                  </p>
+                )}
+                <button
+                  type="button"
+                  onClick={showCurrentLocation}
+                  disabled={locationStatus.state === 'locating'}
+                  aria-describedby={locationStatus.message ? 'campus-map-location-status' : undefined}
+                  className="inline-flex min-h-9 items-center justify-center gap-2 rounded-full border border-border/70 bg-background/90 px-3 text-sm font-semibold text-foreground shadow-md backdrop-blur-sm transition-colors hover:bg-background focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:cursor-wait disabled:opacity-70"
+                >
+                  {locationStatus.state === 'locating' ? (
+                    <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <LocateFixed aria-hidden="true" className="h-4 w-4" />
+                  )}
+                  {locationStatus.state === 'locating' ? 'Locating…' : 'Where am I?'}
+                </button>
+              </div>
               <iframe
-                title={`Ramapo map preview for ${selectedLocation.name}`}
-                src={cleanEmbedUrl}
-                allow="geolocation; fullscreen"
+                ref={mapFrameRef}
+                title={
+                  currentLocationUrl
+                    ? 'Ramapo map showing your current location'
+                    : `Ramapo map preview for ${selectedLocation.name}`
+                }
+                src={mapEmbedUrl}
+                // Do not delegate geolocation to Concept3D merely by opening
+                // the map. It becomes available only after the user explicitly
+                // chooses "Where am I?" and the parent request succeeds.
+                allow={currentLocationUrl ? 'geolocation; fullscreen' : 'fullscreen'}
                 className="w-full h-full border-0 bg-muted/10"
               />
             </div>
@@ -320,7 +471,7 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
                                 <button
                                   key={location.key}
                                   ref={isSelected ? selectedItemRef : undefined}
-                                  onClick={() => setSelectedKey(location.key)}
+                                  onClick={() => selectLocation(location.key)}
                                   className={`w-full text-left rounded-xl border px-3 py-2.5 transition-all ${
                                     isSelected
                                       ? 'border-[#8E0A26] bg-[#8E0A26]/15 ring-2 ring-[#8E0A26]/50 shadow-md'

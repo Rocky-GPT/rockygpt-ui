@@ -45,9 +45,14 @@ export default defineConfig({
     : [['line']],
   use: {
     baseURL,
+    // Local machines can opt into an installed browser when Playwright's
+    // downloaded Chromium is unavailable. CI keeps using the pinned browser.
+    channel: process.env.PLAYWRIGHT_CHANNEL || undefined,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
-    video: 'retain-on-failure',
+    // The installed Chrome path does not require Playwright's optional FFmpeg
+    // download, which is useful on constrained local development machines.
+    video: process.env.PLAYWRIGHT_CHANNEL ? 'off' : 'retain-on-failure',
   },
   webServer: process.env.PLAYWRIGHT_BASE_URL ? undefined : localWebServers,
   projects: [
