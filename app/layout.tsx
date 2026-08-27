@@ -52,13 +52,14 @@ export const viewport = {
   themeColor: "#991B1E",
   width: "device-width",
   initialScale: 1,
-  // Let the on-screen keyboard shrink the layout viewport instead of covering
-  // it. Under the default, `innerHeight` stays the full 812 while the visible
-  // area drops to about 470, so the composer — pinned to the bottom of a
-  // viewport that never moved — sat at 694-812, entirely behind the keyboard,
-  // as did every modal's search field. Nothing could scroll it into view
-  // either, because both are fixed. Resizing the content moves them instead.
-  interactiveWidget: "resizes-content",
+  // The keyboard covers the page; it does not reflow it. `resizes-content`
+  // would fix the composer by moving everything — scroll position, every fixed
+  // element, the modal being read — which is not what Safari's own address bar
+  // does. It holds the page still and floats one bar above the keyboard.
+  // `lib/visual-viewport` measures the covered strip so the few things that
+  // must clear the keyboard can move on their own. Stated rather than left to
+  // the default, because that primitive is written against this behaviour.
+  interactiveWidget: "resizes-visual",
 } satisfies Viewport;
 
 /**
