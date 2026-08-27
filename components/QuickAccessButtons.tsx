@@ -16,9 +16,9 @@ import { X, Loader2, Bus, Clock, Phone, Shield, MapPin, ExternalLink, AlertTrian
 import Fuse from 'fuse.js';
 import { Virtuoso } from 'react-virtuoso';
 import { parseSemesterEventDate } from '@/lib/calendar-dates';
+import { anyArray, anyObject, loadCampusData, objectWithArray } from '@/lib/campus-data';
 import { MODAL_PANEL, MODAL_PANEL_SHORT } from '@/components/modalShell';
 import type {
-  DirectoryApiResponse,
   FacultyStaffContact,
   NormalizedDirectoryContact,
 } from '@/lib/data-types';
@@ -241,19 +241,19 @@ export function EventsModal({ isOpen, onClose }: ModalProps) {
   // Load events from JSON
   useEffect(() => {
     if (isOpen) {
-      fetch('/api/data/events')
-        .then(res => res.json())
-        .then(data => {
-          const list = Array.isArray(data) ? (data as EventItem[]) : [];
-          const upcoming = list.filter(isEventUpcoming).sort(compareEventsByStart);
-          setEvents(upcoming);
-          setFilteredEvents(upcoming);
+      void loadCampusData('/api/data/events', anyArray).then(result => {
+        if (!result.ok) {
+          console.error('Error loading events:', result.message);
           setLoading(false);
-        })
-        .catch(err => {
-          console.error('Error loading events:', err);
-          setLoading(false);
-        });
+          return;
+        }
+        const upcoming = (result.data as EventItem[])
+          .filter(isEventUpcoming)
+          .sort(compareEventsByStart);
+        setEvents(upcoming);
+        setFilteredEvents(upcoming);
+        setLoading(false);
+      });
     }
   }, [isOpen]);
 
@@ -584,23 +584,13 @@ export function DirectoryModal({ isOpen, onClose }: ModalProps) {
     if (!isOpen) return;
 
     setLoadingDirectory(true);
-    fetch('/api/directory')
-      .then(async (res) => {
-        if (!res.ok) {
-          throw new Error(`Directory request failed with ${res.status}`);
-        }
-        const data = (await res.json()) as Partial<DirectoryApiResponse>;
-        const contacts = Array.isArray(data?.allContacts)
-          ? (data.allContacts as NormalizedDirectoryContact[])
-          : [];
-
-        setAllContacts(contacts);
-      })
-      .catch((error) => {
-        console.error('Error loading directory contacts:', error);
-        setAllContacts([]);
-      })
-      .finally(() => setLoadingDirectory(false));
+    void loadCampusData('/api/directory', objectWithArray('allContacts')).then(result => {
+      if (!result.ok) console.error('Error loading directory contacts:', result.message);
+      setAllContacts(
+        result.ok ? (result.data.allContacts as NormalizedDirectoryContact[]) : []
+      );
+      setLoadingDirectory(false);
+    });
   }, [isOpen]);
 
   useEffect(() => {
@@ -1059,20 +1049,11 @@ export function ClubsModal({ isOpen, onClose }: ModalProps) {
 
   useEffect(() => {
     if (isOpen) {
-      fetch('/api/data/clubs')
-        .then(res => {
-          if (!res.ok) throw new Error(`Clubs request failed: ${res.status}`);
-          return res.json();
-        })
-        .then(data => {
-          setClubs(Array.isArray(data) ? data : []);
-          setLoading(false);
-        })
-        .catch(err => {
-          console.error('Error loading clubs:', err);
-          setClubs([]);
-          setLoading(false);
-        });
+      void loadCampusData('/api/data/clubs', anyArray).then(result => {
+        if (!result.ok) console.error('Error loading clubs:', result.message);
+        setClubs(result.ok ? (result.data as ClubItem[]) : []);
+        setLoading(false);
+      });
     }
   }, [isOpen]);
 
@@ -1667,13 +1648,10 @@ export function CalendarModal({ isOpen, onClose }: ModalProps) {
   useEffect(() => {
     if (isOpen) {
       setLoading(true);
-      fetch('/api/data/calendar')
-        .then((res) => {
-          if (!res.ok) throw new Error(`Calendar fetch failed: ${res.status}`);
-          return res.json();
-        })
-        .then((data: unknown) => {
-          const rawList = Array.isArray(data) ? (data as Semester[]) : [];
+      void loadCampusData('/api/data/calendar', anyArray)
+        .then((result) => {
+          if (!result.ok) throw new Error(result.message);
+          const rawList = result.data as Semester[];
           // Deduplicate semesters by name if duplicates exist in release artifact
           const deduped: Semester[] = [];
           const seen = new Set<string>();
@@ -2406,7 +2384,7 @@ export function MajorsModal({ isOpen, onClose }: ModalProps) {
 
   // Find which school a major belongs to
   const schoolForMajor = (major: MajorEntry) =>
-    programs?.schools.find(s => s.majors.some(m => m.name === major.name));
+    programs?.schools?.find(s => s.majors?.some(m => m.name === major.name));
 
   // PROB-018: opening the modal loads only the program index, exactly once.
   // The `allCourses` dependency previously re-ran this effect after courses
@@ -2420,10 +2398,18 @@ export function MajorsModal({ isOpen, onClose }: ModalProps) {
       return;
     }
     setLoading(true);
-    fetch('/api/data/programs')
-      .then(r => r.json())
-      .then((data: ProgramsData) => { setPrograms(data); setLoading(false); })
-      .catch(() => setLoading(false));
+    // The shape check is the whole point here: a 503 answers with `{ error }`,
+    // which satisfied every `if (programs)` guard below and then had no
+    // `schools` to read. `programs` stays null unless it is drawable.
+    void loadCampusData('/api/data/programs', objectWithArray('schools')).then(result => {
+      if (!result.ok) {
+        console.error('Failed to load programs:', result.message);
+        setLoading(false);
+        return;
+      }
+      setPrograms(result.data as unknown as ProgramsData);
+      setLoading(false);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
@@ -2434,13 +2420,14 @@ export function MajorsModal({ isOpen, onClose }: ModalProps) {
     if (activeTab !== 'curriculum' || !selectedMajor) return;
     if (allCourses || coursesRequestedRef.current) return;
     coursesRequestedRef.current = true;
-    fetch('/api/data/courses')
-      .then(r => r.json())
-      .then(data => setAllCourses(data))
-      .catch(err => {
+    void loadCampusData('/api/data/courses', anyObject).then(result => {
+      if (!result.ok) {
         coursesRequestedRef.current = false;
-        console.error('Failed to load courses:', err);
-      });
+        console.error('Failed to load courses:', result.message);
+        return;
+      }
+      setAllCourses(result.data);
+    });
   }, [activeTab, selectedMajor, allCourses]);
 
   useEffect(() => {
@@ -2483,9 +2470,9 @@ export function MajorsModal({ isOpen, onClose }: ModalProps) {
   }, [isOpen, levelFilter, programKindFilter, visibleProgramKindOptions.length]);
 
   const filteredMajors = useMemo(() => {
-    if (!programs) return [];
+    if (!Array.isArray(programs?.schools)) return [];
     return programs.schools
-      .flatMap((school) => school.majors)
+      .flatMap((school) => school.majors ?? [])
       .filter((m) => {
         const kind = m.programKind || 'other';
         const isSpecial = kind === 'special';

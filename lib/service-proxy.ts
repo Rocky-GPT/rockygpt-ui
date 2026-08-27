@@ -1,6 +1,6 @@
 import 'server-only';
 import { brainUrl } from './brain-api';
-import { DATA_URL } from './services';
+import { dataAddress } from './services';
 
 const RESPONSE_HEADERS = [
   'cache-control',
@@ -48,12 +48,30 @@ async function proxy(request: Request, url: string, admin = false): Promise<Resp
     });
   } catch (error) {
     console.error(`Service proxy failed for ${url}:`, error);
-    return Response.json({ error: 'Backing service unavailable.' }, { status: 503 });
+    return unavailable('Backing service unavailable.', 'unreachable');
   }
 }
 
+/**
+ * A refusal the caller can tell apart from data.
+ *
+ * `reason` exists because the browser could not: an unset address and a
+ * service that is down both arrived as the same 503 sentence, so a deployment
+ * that had never been given `DATA_URL` was indistinguishable from an outage.
+ */
+function unavailable(message: string, reason: 'unreachable' | 'misconfigured'): Response {
+  return Response.json({ error: message, reason }, { status: 503 });
+}
+
 export function proxyData(request: Request, path: string): Promise<Response> {
-  return proxy(request, `${DATA_URL}${path.startsWith('/') ? path : `/${path}`}`);
+  const { url, problem } = dataAddress();
+  if (url === null) {
+    console.error(`Campus data is not configured: ${problem}`);
+    return Promise.resolve(
+      unavailable('Campus data is not configured for this deployment.', 'misconfigured')
+    );
+  }
+  return proxy(request, `${url}${path.startsWith('/') ? path : `/${path}`}`);
 }
 
 export function proxyBrain(request: Request, path: string, admin = false): Promise<Response> {

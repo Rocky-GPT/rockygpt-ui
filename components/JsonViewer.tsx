@@ -144,7 +144,9 @@ export function JsonViewer({
 
   // `jsonString` is the whole record — copied, downloaded, and measured.
   // `preview` is only what is drawn: reshaped, then stripped, then unwrapped.
-  const jsonString = JSON.stringify(data, null, 2);
+  // `undefined` in, `undefined` out — not a string. Belt and braces with the
+  // caller's `?? null`, because every line below treats this as text.
+  const jsonString = JSON.stringify(data ?? null, null, 2);
   const shaped = previewTransform ? previewTransform(data) : data;
   const visible = hiddenKeys.length ? withoutKeys(shaped, hiddenKeys) : shaped;
   const preview = unwrapOuterObject(

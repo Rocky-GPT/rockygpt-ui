@@ -9,6 +9,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAccessibleDialog } from '@/components/useAccessibleDialog';
 import { ChevronDown, ChevronRight, Search, X } from 'lucide-react';
+import { loadCampusData, objectWithArray } from '@/lib/campus-data';
 import { MODAL_PANEL } from '@/components/modalShell';
 import type { MapLocation } from '@/lib/data-types';
 
@@ -141,12 +142,17 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
   useEffect(() => {
     if (!isOpen) return;
     const controller = new AbortController();
-    void fetch('/api/map', { signal: controller.signal })
-      .then((response) => {
-        if (!response.ok) throw new Error(`Map service answered ${response.status}`);
-        return response.json() as Promise<{ locations?: MapLocation[] }>;
+    void loadCampusData('/api/map', objectWithArray('locations'), {
+      signal: controller.signal,
+    })
+      .then((result) => {
+        if (!result.ok) {
+          console.error('Unable to load campus map:', result.message);
+          setLocations([]);
+          return;
+        }
+        setLocations(result.data.locations as MapLocation[]);
       })
-      .then((payload) => setLocations(Array.isArray(payload.locations) ? payload.locations : []))
       .catch((error) => {
         if (error instanceof Error && error.name !== 'AbortError') {
           console.error('Unable to load campus map:', error);
