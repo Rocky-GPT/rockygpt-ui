@@ -8,7 +8,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAccessibleDialog } from '@/components/useAccessibleDialog';
-import { Loader2, LocateFixed, MapPin, Search } from 'lucide-react';
+import { Loader2, LocateFixed, MapPin, Search, X } from 'lucide-react';
 import { loadCampusData, objectWithArray } from '@/lib/campus-data';
 import { MODAL_OVERLAY, MODAL_PANEL } from '@/components/modalShell';
 import type { MapLocation } from '@/lib/data-types';
@@ -172,6 +172,7 @@ function geolocationErrorMessage(error: GeolocationPositionError): string {
 export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps) {
   const dialogRef = useAccessibleDialog(isOpen, onClose);
   const selectedItemRef = useRef<HTMLButtonElement | null>(null);
+  const resultsPanelRef = useRef<HTMLDivElement | null>(null);
   const mapFrameRef = useRef<HTMLIFrameElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const mapTransitionTimerRef = useRef<number | null>(null);
@@ -308,7 +309,6 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
     ? locationByKey.get(selectedSummaryKey)
     : undefined;
   const showResultPanel = isDirectoryOpen && search.trim().length > 0;
-  const useSplitResultLayout = showResultPanel && filteredLocations.length > 0;
   const visibleSelectedKey = filteredLocations.some((location) => location.key === selectedKey)
     ? selectedKey
     : null;
@@ -324,6 +324,18 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
       return () => window.cancelAnimationFrame(frame);
     }
   }, [isOpen, visibleSelectedKey]);
+
+  // A list that grows upward starts at its own end. Ten matches for "birch"
+  // overflow the panel, and the one worth reading is the last row, so an
+  // untouched scroll position would open on the worst of them.
+  useEffect(() => {
+    const panel = resultsPanelRef.current;
+    if (!panel || !filteredLocations.length) return;
+    const frame = window.requestAnimationFrame(() => {
+      panel.scrollTop = panel.scrollHeight;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [filteredLocations]);
 
   const selectedLocation = locationByKey.get(selectedKey) ?? locationByKey.get(CAMPUS_MAP_KEY);
   if (!isOpen || !selectedLocation) return null;
@@ -405,27 +417,27 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
         aria-label="Campus map"
         tabIndex={-1}
         className={MODAL_PANEL}>
+        {/*
+          While there is a query the map gives up its row entirely and the
+          results take the card. Half a map and half a list left too little of
+          either on a phone — four results visible above a map too small to
+          read. The row collapses rather than unmounting, because tearing the
+          iframe out would reload the whole Concept3D map and lose the pin you
+          are searching from.
+        */}
         <div
           className={`flex-1 min-h-0 min-w-0 grid overflow-hidden ${
-            useSplitResultLayout
-              ? 'grid-rows-[minmax(0,1fr)_minmax(0,1fr)]'
+            showResultPanel
+              ? 'grid-rows-[0fr_minmax(0,1fr)]'
               : 'grid-rows-[minmax(0,1fr)_auto]'
           }`}
         >
-          <div className="min-h-0 min-w-0 bg-muted/20 overflow-hidden border-b border-border">
+          <div
+            className={`min-h-0 min-w-0 bg-muted/20 overflow-hidden ${
+              showResultPanel ? '' : 'border-b border-border'
+            }`}
+          >
             <div className="relative h-full w-full min-w-0 overflow-hidden bg-background">
-              {showResultPanel && (
-                <button
-                  type="button"
-                  tabIndex={-1}
-                  aria-label="Close map search results"
-                  onClick={() => {
-                    setIsDirectoryOpen(false);
-                    searchInputRef.current?.blur();
-                  }}
-                  className="absolute inset-0 z-10 cursor-grab bg-transparent"
-                />
-              )}
               <div className="absolute bottom-2 left-2 z-20 flex max-w-[calc(100%-1rem)] flex-col items-start gap-2">
                 {locationStatus.message && (
                   <p
@@ -476,11 +488,20 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
           <div className="min-h-0 min-w-0 flex flex-col">
             {showResultPanel && (
               <div
+                ref={resultsPanelRef}
                 data-testid="campus-map-results"
-                className="flex-1 min-h-0 min-w-0 overflow-y-auto scrollbar-none"
+                // Results stack up from the search field rather than down from
+                // the top. One match against a full-height card left the answer
+                // stranded at the far end of the panel, furthest from both the
+                // field it came from and the thumb that has to reach it.
+                // `mt-auto` on the list rather than `justify-end` here: an auto
+                // margin collapses to nothing once the list is taller than the
+                // panel, where `justify-end` would clip the first rows out of
+                // scroll range instead.
+                className="flex flex-1 min-h-0 min-w-0 flex-col overflow-y-auto scrollbar-none"
               >
                 {filteredLocations.length === 0 ? (
-                  <div className="p-4 text-sm text-muted-foreground">
+                  <div className="mt-auto p-4 text-sm text-muted-foreground">
                     No matches found. Try a different search term.
                   </div>
                 ) : (
@@ -492,8 +513,15 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
                     match is what should be under your thumb — not the first
                     member of whichever section happened to sort first.
                   */
-                  <ul>
-                    {filteredLocations.map((location) => {
+                  /*
+                    Reversed in the DOM rather than with `flex-col-reverse`, so
+                    what a screen reader reads and what the Tab key visits is
+                    the order actually on screen. Shift-Tab out of the field
+                    therefore reaches the best match first, which is also the
+                    row directly above it.
+                  */
+                  <ul className="mt-auto">
+                    {[...filteredLocations].reverse().map((location) => {
                       const isSelected = location.key === selectedKey;
                       const secondary =
                         location.type === 'office' && location.room
@@ -544,8 +572,22 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
                     onFocus={() => setIsDirectoryOpen(true)}
                     onChange={(event) => setSearch(event.target.value)}
                     placeholder={selectedSummaryLocation?.name ?? 'Search the campus map'}
-                    className="w-full min-w-0 bg-muted/60 border border-border rounded-xl pl-9 pr-3 py-2.5 text-base md:text-sm outline-none focus:ring-2 focus:ring-primary/30"
+                    className="w-full min-w-0 bg-muted/60 border border-border rounded-xl pl-9 pr-10 py-2.5 text-base md:text-sm outline-none focus:ring-2 focus:ring-primary/30"
                   />
+                  {search && (
+                    <button
+                      type="button"
+                      aria-label="Close map search results"
+                      onClick={() => {
+                        setSearch('');
+                        setIsDirectoryOpen(false);
+                        searchInputRef.current?.blur();
+                      }}
+                      className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+                    >
+                      <X aria-hidden="true" className="h-4 w-4" />
+                    </button>
+                  )}
                 </div>
               </div>
             </div>

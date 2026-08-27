@@ -126,12 +126,15 @@ test('the campus directory opens on search focus and collapses after selection',
   await search.click();
   await search.fill('Davidson');
   await expect(davidsonResult).toBeVisible();
+  // Clearing is what dismisses now. The map used to be the way out — an
+  // invisible button across it closed the results — but the map gives up its
+  // row while searching, so the way out moved into the field.
   await dialog.getByRole('button', { name: 'Close map search results' }).click();
   await expect(davidsonResult).toHaveCount(0);
-  await expect(search).toHaveValue('Davidson');
+  await expect(search).toHaveValue('');
   await expect(search).not.toBeFocused();
 
-  await search.click();
+  await search.fill('Davidson');
   await expect(davidsonResult).toBeVisible();
   await expect(dialog.locator('iframe')).toHaveAttribute(
     'src',
