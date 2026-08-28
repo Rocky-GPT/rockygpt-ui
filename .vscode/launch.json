@@ -9,6 +9,7 @@
       "runtimeArgs": ["run", "dev"],
       "cwd": "${workspaceFolder}",
       "console": "internalConsole",
+      "internalConsoleOptions": "openOnSessionStart",
       "outputCapture": "std"
     }
   ]
