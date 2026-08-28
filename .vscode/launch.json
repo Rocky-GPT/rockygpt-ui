@@ -3,10 +3,13 @@
   "configurations": [
     {
       "name": "🖥️ UI: Next.js (localhost:3000)",
-      "type": "node-terminal",
+      "type": "node",
       "request": "launch",
-      "command": "npm run dev",
-      "cwd": "${workspaceFolder}"
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "${workspaceFolder}",
+      "console": "internalConsole",
+      "outputCapture": "std"
     }
   ]
 }
