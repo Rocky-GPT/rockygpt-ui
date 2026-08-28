@@ -6,9 +6,16 @@
  * and a service this deployment was never told the address of. Reporting both
  * as "data is failing" is what let an unset `DATA_URL` look like an outage —
  * so `misconfigured` names the one a deploy fixes and a restart does not.
+ *
+ * The campus data service is no longer among them. Every production route now
+ * reads campus data from the brain, so an unreachable data service can no
+ * longer stop this deployment serving and must not hold readiness down. Only
+ * `/api/dev/*` still calls it, and those 404 outside development. The shape
+ * below keeps room for more than one service because the distinction above is
+ * the point, not the count.
  */
 
-import { brainAddress, dataAddress } from '@/lib/services';
+import { brainAddress } from '@/lib/services';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,7 +32,7 @@ async function reachable(url: string): Promise<boolean> {
 }
 
 export async function GET() {
-  const services = { brain: brainAddress(), data: dataAddress() };
+  const services = { brain: brainAddress() };
   const misconfigured = Object.entries(services)
     .filter(([, address]) => address.url === null)
     .map(([name, address]) => ({ service: name, problem: address.problem }));
