@@ -1996,33 +1996,30 @@ export default function Home() {
         {composerSuggestedQuestions.length > 0 && (
           <div
             aria-hidden={!shouldShowComposerSuggestions}
-            className={`mx-auto max-w-2xl origin-bottom transition-[max-height,margin,opacity] duration-200 ease-out motion-reduce:transition-none ${
+            className={`mx-auto max-w-2xl origin-bottom transition-[max-height,margin,opacity,transform] duration-300 ease-out motion-reduce:transition-none ${
               shouldShowComposerSuggestions
-                ? 'mb-2 max-h-64 opacity-100'
-                : 'pointer-events-none mb-0 max-h-0 overflow-hidden opacity-0'
+                ? 'mb-2 max-h-14 translate-y-0 scale-100 opacity-100'
+                : 'pointer-events-none mb-0 max-h-0 translate-y-2 scale-[0.98] overflow-hidden opacity-0'
             }`}
           >
-            <ul
-              aria-label="Suggested questions"
-              className="scrollbar-none max-h-64 overflow-y-auto overscroll-contain rounded-2xl border border-border/60 bg-background/95 backdrop-blur-xl"
+            <div
+              role="group"
+              aria-label="Suggested follow-up questions"
+              className="scrollbar-none flex max-w-full gap-2 overflow-x-auto px-1 py-0.5"
             >
               {composerSuggestedQuestions.map((question) => (
-                <li key={question} className="border-b border-border/40 last:border-b-0">
-                  <button
-                    type="button"
-                    disabled={!shouldShowComposerSuggestions}
-                    onClick={() => handleSuggestionClick(question)}
-                    className="flex min-h-12 w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/60 disabled:cursor-default"
-                  >
-                    <Sparkles aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    <span className="min-w-0 flex-1 text-[15px] leading-snug text-muted-foreground">
-                      {question}
-                    </span>
-                    <ChevronRight aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground/60" />
-                  </button>
-                </li>
+                <button
+                  key={question}
+                  type="button"
+                  disabled={!shouldShowComposerSuggestions}
+                  onClick={() => handleSuggestionClick(question)}
+                  className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-2xl border border-border/70 bg-background/95 px-3 py-2 text-left text-sm text-muted-foreground shadow-sm backdrop-blur-xl transition-colors hover:border-[#f4a8b5]/60 hover:bg-muted hover:text-foreground disabled:cursor-default"
+                >
+                  <Sparkles aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+                  {question}
+                </button>
               ))}
-            </ul>
+            </div>
           </div>
         )}
 
