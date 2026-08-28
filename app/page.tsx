@@ -593,7 +593,6 @@ export default function Home() {
   const actionMenuCloseTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const [isSplashDismissed, setIsSplashDismissed] = useState(false);
-  const [isComposerFocused, setIsComposerFocused] = useState(false);
   const [shouldOpenWelcomeOnLoad, setShouldOpenWelcomeOnLoad] = useState(false);
   // Guards the auto-open below so the welcome modal is only ever raised once per
   // page load, no matter how often the splash reports its fade.
@@ -1634,23 +1633,7 @@ export default function Home() {
                 ))}
               </div>
 
-              {/*
-                The shortcuts step aside once you start writing.
-                They are an alternative to typing, so the moment you type they
-                are nine things you have already declined — and on a phone they
-                are nine things directly under the keyboard, crowding the one
-                row that matters. The negative margin cancels the column's gap
-                so the space closes with them rather than staying behind as a
-                hole. Collapsed on the wrapper, not the buttons: each button
-                owns its entrance animation with a `both` fill, which would
-                outrank any opacity written onto it.
-              */}
-              <div
-                aria-hidden={isComposerFocused}
-                className={`flex flex-wrap gap-2 overflow-hidden transition-[max-height,opacity,margin] duration-300 ease-out motion-reduce:transition-none ${
-                  isComposerFocused ? 'pointer-events-none -mt-8 max-h-0 opacity-0' : 'max-h-96 opacity-100'
-                }`}
-              >
+              <div className="flex flex-wrap gap-2">
                 {[
                   { icon: Utensils, label: 'Birch Menu', action: () => setIsMenuOpen(true) },
                   { icon: Bus, label: 'Shuttle Schedule', action: () => setIsBusModalOpen(true) },
@@ -1685,7 +1668,6 @@ export default function Home() {
                   <button
                     key={label}
                     onClick={action}
-                    tabIndex={isComposerFocused ? -1 : undefined}
                     className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-muted hover:bg-muted/70 text-sm font-medium transition-colors ${isSplashDismissed ? 'animate-hero-pill' : 'opacity-0'}`}
                     style={{ animationDelay: `${180 + index * 35}ms` }}
                   >
@@ -2000,45 +1982,8 @@ export default function Home() {
       )}
 
       {/* Input Area */}
-      {/*
-        Sits exactly as far above the bottom as the keyboard is tall, and
-        nothing else on the page moves with it. `bottom` and not a transform:
-        the entrance animation already owns `transform` with `both`, and a
-        running animation outranks an inline style, so a lift written that way
-        is silently discarded. On a fixed element `bottom` repositions this box
-        alone — the thread behind it does not reflow or scroll.
-      */}
-      {/*
-        Anchored to the top of the page and given the *visible* height, rather
-        than anchored to the top of the visible band.
-        
-        Both put the composer above the keyboard, and the difference only shows
-        on a real phone. `fixed` resolves against the layout viewport, which
-        the keyboard does not shrink, so anchoring to the band's top left this
-        box spanning to the bottom of a full-height page — the one region the
-        band no longer covers. Safari then did what it must to reveal a focused
-        field: it scrolled the band down to the bottom of the page. The
-        composer looked right, and the header and the entire greeting were now
-        above the visible band. A blank screen with a text field on it.
-        
-        Given the visible height instead, the composer's own position rises
-        with the keyboard to sit inside the band Safari is already showing. So
-        there is nothing to scroll into view, the band stays at the top, and
-        the page behind it keeps standing still — which was the point.
-      */}
-      {/*
-        Two elements because two things want `transform`. The outer one spans
-        the visible band and holds the composer against its floor; the inner
-        one keeps the entrance animation, which owns `transform` with a `both`
-        fill and would otherwise overwrite any positioning written there — a
-        running animation outranks an inline style, silently.
-      */}
       <div
-        style={{ height: 'var(--viewport-height, 100dvh)' }}
-        className="pointer-events-none fixed inset-x-0 top-0 z-[70] flex flex-col justify-end"
-      >
-        <div
-        className={`pointer-events-auto bg-gradient-to-t from-background via-background to-transparent px-2 pb-4 pt-6 sm:px-4 ${isSplashDismissed ? 'animate-hero-input' : 'opacity-0'}`}
+        className={`fixed inset-x-0 bottom-0 z-[70] bg-gradient-to-t from-background via-background to-transparent px-2 pb-4 pt-6 sm:px-4 ${isSplashDismissed ? 'animate-hero-input' : 'opacity-0'}`}
       >
         {/*
           A list, not a row of chips. A chip row scrolls sideways, so the third
@@ -2198,8 +2143,6 @@ export default function Home() {
                 placeholder="Ask RockyGPT"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                onFocus={() => setIsComposerFocused(true)}
-                onBlur={() => setIsComposerFocused(false)}
                 maxLength={MAX_MESSAGE_LENGTH}
               />
               {isLoading ? (
@@ -2281,7 +2224,6 @@ export default function Home() {
             Built for Roadrunners. Ask, explore, and verify.
           </p>
         </div>
-      </div>
       </div>
 
       <MenuModal
