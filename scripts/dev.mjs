@@ -18,9 +18,14 @@ console.log(`\n  ${cyan}${bold}🦅 RockyGPT UI${reset} ${dim}(v0.1.0)${reset}`)
 console.log(`  ${green}✓${reset}  ${bold}Local:${reset}   ${cyan}http://localhost:3000${reset}`);
 console.log(`  ${dim}·  Brain:   http://127.0.0.1:8000 (Neon SQL)${reset}\n`);
 
+const cleanEnv = { ...process.env };
+delete cleanEnv.NODE_OPTIONS;
+delete cleanEnv.VSCODE_INSPECTOR_OPTIONS;
+delete cleanEnv.NODE_INSPECT_RESUME_ON_START;
+
 const next = spawn('next', ['dev'], {
   stdio: 'inherit',
-  env: process.env,
+  env: cleanEnv,
 });
 
 next.on('exit', (code) => {
