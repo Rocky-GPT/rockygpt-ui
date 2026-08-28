@@ -7,8 +7,7 @@
     "node": "22.x"
   },
   "scripts": {
-    "predev": "lsof -ti:3000 | xargs kill -9 2>/dev/null || true",
-    "dev": "next dev",
+    "dev": "node scripts/dev.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
