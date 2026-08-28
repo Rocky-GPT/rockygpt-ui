@@ -47,11 +47,19 @@ interface ChatLogItem {
   facts_extracted: Array<{ key: string; kind: string; value: unknown }>;
   debug_info?: Record<string, unknown>;
   latency_ms: number;
-  feedback: string | null;
-  /** Student-submitted feedback, joined from rockygpt_v2.feedback. */
-  feedback_rating: number | null;
-  feedback_category: string | null;
-  feedback_comment: string | null;
+  /**
+   * Operator feedback. Absent from the wire when unset (the brain serializes
+   * with `exclude_none`); `null` only as the local cleared-by-toggle state.
+   */
+  feedback?: 'positive' | 'negative' | null;
+  /**
+   * Student-submitted feedback, joined from rockygpt_v2.feedback. Every field
+   * here is ABSENT from the payload when the student left none — never `null`.
+   * Test with `=== undefined`, never `=== null`.
+   */
+  feedback_rating?: -1 | 1;
+  feedback_category?: string;
+  feedback_comment?: string;
   created_at: string;
 }
 
@@ -597,7 +605,9 @@ export function LogsDashboard() {
               </div>
 
               {/* Student feedback submitted from the live site */}
-              {(log.feedback_comment || log.feedback_category || log.feedback_rating !== null) && (
+              {(log.feedback_comment ||
+                log.feedback_category ||
+                log.feedback_rating !== undefined) && (
                 <div
                   className={`pt-2 border-t border-white/5`}
                 >
@@ -608,24 +618,28 @@ export function LogsDashboard() {
                     className={`rounded-lg border p-3 ${
                       log.feedback_rating === 1
                         ? 'bg-emerald-500/5 border-emerald-500/20'
-                        : 'bg-rose-500/5 border-rose-500/20'
+                        : log.feedback_rating === -1
+                          ? 'bg-rose-500/5 border-rose-500/20'
+                          : 'bg-neutral-500/5 border-white/10'
                     }`}
                   >
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span
-                        className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-semibold ${
-                          log.feedback_rating === 1
-                            ? 'bg-emerald-500/20 text-emerald-300'
-                            : 'bg-rose-500/20 text-rose-300'
-                        }`}
-                      >
-                        {log.feedback_rating === 1 ? (
-                          <ThumbsUp className="h-3 w-3" />
-                        ) : (
-                          <ThumbsDown className="h-3 w-3" />
-                        )}
-                        {log.feedback_rating === 1 ? 'Helpful' : 'Not helpful'}
-                      </span>
+                      {log.feedback_rating !== undefined && (
+                        <span
+                          className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-semibold ${
+                            log.feedback_rating === 1
+                              ? 'bg-emerald-500/20 text-emerald-300'
+                              : 'bg-rose-500/20 text-rose-300'
+                          }`}
+                        >
+                          {log.feedback_rating === 1 ? (
+                            <ThumbsUp className="h-3 w-3" />
+                          ) : (
+                            <ThumbsDown className="h-3 w-3" />
+                          )}
+                          {log.feedback_rating === 1 ? 'Helpful' : 'Not helpful'}
+                        </span>
+                      )}
                       {log.feedback_category && (
                         <span className="inline-flex items-center rounded-md bg-neutral-800 px-2 py-0.5 text-[11px] font-mono text-neutral-300 border border-white/10">
                           {log.feedback_category.replace(/_/g, ' ')}
@@ -1104,7 +1118,7 @@ export function LogsDashboard() {
                 const isDevCollapsed = collapsedDevices.has(devGroup.visitorId);
                 const last = devGroup.logs[0];
                 const feedbackCount = devGroup.logs.filter(
-                  (l) => l.feedback_rating !== null && l.feedback_rating !== undefined
+                  (l) => l.feedback_rating !== undefined
                 ).length;
                 const negativeCount = devGroup.logs.filter((l) => l.feedback_rating === -1).length;
 
@@ -1240,7 +1254,7 @@ export function LogsDashboard() {
               const spanMs =
                 new Date(last.created_at).getTime() - new Date(first.created_at).getTime();
               const feedbackCount = group.logs.filter(
-                (l) => l.feedback_rating !== null && l.feedback_rating !== undefined
+                (l) => l.feedback_rating !== undefined
               ).length;
               const negativeCount = group.logs.filter((l) => l.feedback_rating === -1).length;
 

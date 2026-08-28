@@ -19,27 +19,6 @@ export interface ChatRequest {
   questionOrigin?: QuestionOrigin;
 }
 
-export interface ChatResult {
-  requestId: string;
-  answer?: string;
-  route?: string;
-  citations?: Array<{ sourceId: string; title: string; url: string; collectedAt?: string }>;
-  uiActions?: Array<{ type: string; payload?: Record<string, string> }>;
-  isError?: false;
-  suggestedQuestions?: string[];
-  brainTrace?: {
-    question: Record<string, unknown>;
-    memory: Record<string, unknown>;
-    understanding: Record<string, unknown>;
-    context: Record<string, unknown>;
-    plan: Record<string, unknown>;
-    normalizedPlan: Record<string, unknown>;
-    execution: Record<string, unknown>;
-    answer: Record<string, unknown>;
-  };
-  error?: { code: string; message: string; retryable: boolean };
-}
-
 export interface ClientAbuseIdentity {
   key: string;
   signature?: string;

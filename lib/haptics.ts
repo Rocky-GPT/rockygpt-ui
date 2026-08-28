@@ -22,18 +22,6 @@ type HapticPreset =
   | 'error'
   | 'nudge';
 
-/** Multi-step vibration pattern used for the assistant typing pulse. */
-const TYPING_PATTERN: Array<{ duration: number; delay?: number; intensity?: number }> = [
-  { duration: 30 },
-  { delay: 60, duration: 80, intensity: 1 },
-  { delay: 50, duration: 70 },
-  { delay: 70, duration: 90, intensity: 1 },
-  { delay: 110, duration: 90, intensity: 0.67 },
-] ;
-const TYPING_VIBRATION_INTERVAL_MS = TYPING_PATTERN.reduce(
-  (total, step) => total + (step.delay ?? 0) + step.duration,
-  0
-);
 const INTERACTIVE_SELECTOR = 'button, a[href], [role="button"], summary, [data-haptic]';
 const DEFAULT_INTENSITY: Record<HapticPreset, number> = {
   selection: 0.35,
@@ -148,42 +136,6 @@ export function bindGlobalTapHaptics() {
   document.addEventListener('click', handleClick, true);
   return () => {
     document.removeEventListener('click', handleClick, true);
-  };
-}
-
-/**
- * Creates a controller for repeated typing haptics while the assistant is streaming.
- */
-export function createTypingHaptics() {
-  let intervalId: ReturnType<typeof setInterval> | null = null;
-  let running = false;
-
-  const pulse = () => {
-    if (document.hidden || !canUseHaptics()) return;
-    void haptics.trigger(TYPING_PATTERN).catch(() => {
-      // Ignore runtime haptics failures; feedback should never break the UI.
-    });
-    setTimeout(syncFallbackSwitch, 0);
-  };
-
-  return {
-    start() {
-      if (running || !canUseHaptics()) return;
-      running = true;
-      pulse();
-      intervalId = setInterval(pulse, TYPING_VIBRATION_INTERVAL_MS);
-    },
-    stop() {
-      if (intervalId) {
-        clearInterval(intervalId);
-        intervalId = null;
-      }
-
-      if (running) {
-        haptics.cancel();
-        running = false;
-      }
-    },
   };
 }
 
