@@ -19,7 +19,11 @@ let bannerPrinted = false;
 function printBanner() {
   if (bannerPrinted) return;
   bannerPrinted = true;
-  process.stdout.write('\x1b[2J\x1b[0f');
+  try {
+    execSync('clear -x', { stdio: 'inherit' });
+  } catch {
+    process.stdout.write('\x1b[H\x1b[2J');
+  }
   console.log(`\n  ${cyan}${bold}🦅 RockyGPT UI${reset} ${dim}(v0.1.0 · Next.js 16)${reset}`);
   console.log(`  ${green}✓${reset}  ${bold}Local:${reset}    ${cyan}http://localhost:3000${reset}`);
   console.log(`  ${dim}·  Backend:${reset}  ${dim}http://127.0.0.1:8000 (Python Brain ➔ Neon)${reset}\n`);
