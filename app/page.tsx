@@ -2009,6 +2009,24 @@ export default function Home() {
         alone — the thread behind it does not reflow or scroll.
       */}
       {/*
+        Anchored to the top of the page and given the *visible* height, rather
+        than anchored to the top of the visible band.
+        
+        Both put the composer above the keyboard, and the difference only shows
+        on a real phone. `fixed` resolves against the layout viewport, which
+        the keyboard does not shrink, so anchoring to the band's top left this
+        box spanning to the bottom of a full-height page — the one region the
+        band no longer covers. Safari then did what it must to reveal a focused
+        field: it scrolled the band down to the bottom of the page. The
+        composer looked right, and the header and the entire greeting were now
+        above the visible band. A blank screen with a text field on it.
+        
+        Given the visible height instead, the composer's own position rises
+        with the keyboard to sit inside the band Safari is already showing. So
+        there is nothing to scroll into view, the band stays at the top, and
+        the page behind it keeps standing still — which was the point.
+      */}
+      {/*
         Two elements because two things want `transform`. The outer one spans
         the visible band and holds the composer against its floor; the inner
         one keeps the entrance animation, which owns `transform` with a `both`
@@ -2016,11 +2034,8 @@ export default function Home() {
         running animation outranks an inline style, silently.
       */}
       <div
-        style={{
-          top: 'var(--viewport-top, 0px)',
-          height: 'var(--viewport-height, 100dvh)',
-        }}
-        className="pointer-events-none fixed inset-x-0 z-[70] flex flex-col justify-end"
+        style={{ height: 'var(--viewport-height, 100dvh)' }}
+        className="pointer-events-none fixed inset-x-0 top-0 z-[70] flex flex-col justify-end"
       >
         <div
         className={`pointer-events-auto bg-gradient-to-t from-background via-background to-transparent px-2 pb-4 pt-6 sm:px-4 ${isSplashDismissed ? 'animate-hero-input' : 'opacity-0'}`}
