@@ -57,7 +57,7 @@ export function buildContentSecurityPolicy(options: SecurityHeaderOptions = {}):
     "default-src 'self'",
     "base-uri 'self'",
     "form-action 'self'",
-    "frame-ancestors 'none'",
+    isDevelopment ? "frame-ancestors 'self' *" : "frame-ancestors 'none'",
     "object-src 'none'",
     `script-src 'self' 'unsafe-inline'${isDevelopment ? " 'unsafe-eval'" : ''}`,
     "style-src 'self' 'unsafe-inline'",
@@ -84,8 +84,9 @@ export function buildContentSecurityPolicy(options: SecurityHeaderOptions = {}):
 
 /** Shared response headers for every page, asset, and API route. */
 export function buildSecurityHeaders(options: SecurityHeaderOptions = {}): SecurityHeader[] {
+  const isDevelopment = (options.nodeEnv ?? process.env.NODE_ENV) !== 'production';
   const cspMode = resolveCspMode(options.cspMode);
-  return [
+  const headers: SecurityHeader[] = [
     {
       key: cspMode === 'report-only'
         ? 'Content-Security-Policy-Report-Only'
@@ -101,7 +102,12 @@ export function buildSecurityHeaders(options: SecurityHeaderOptions = {}): Secur
       // map itself, so the embed is delegated nothing.
       value: 'camera=(), geolocation=(self), microphone=(), payment=(), usb=()',
     },
-    // CSP frame-ancestors is authoritative; X-Frame-Options protects legacy clients.
-    { key: 'X-Frame-Options', value: 'DENY' },
   ];
+
+  // CSP frame-ancestors is authoritative; X-Frame-Options protects legacy clients in production.
+  if (!isDevelopment) {
+    headers.push({ key: 'X-Frame-Options', value: 'DENY' });
+  }
+
+  return headers;
 }
