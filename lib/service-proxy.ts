@@ -1,6 +1,5 @@
 import 'server-only';
-import { brainUrl } from './brain-api';
-import { dataAddress } from './services';
+import { brainAddress, dataAddress } from './services';
 
 const RESPONSE_HEADERS = [
   'cache-control',
@@ -75,5 +74,12 @@ export function proxyData(request: Request, path: string): Promise<Response> {
 }
 
 export function proxyBrain(request: Request, path: string, admin = false): Promise<Response> {
-  return proxy(request, `${brainUrl()}${path.startsWith('/') ? path : `/${path}`}`, admin);
+  const { url, problem } = brainAddress();
+  if (url === null) {
+    console.error(`The brain is not configured: ${problem}`);
+    return Promise.resolve(
+      unavailable('The answering engine is not configured for this deployment.', 'misconfigured')
+    );
+  }
+  return proxy(request, `${url}${path.startsWith('/') ? path : `/${path}`}`, admin);
 }

@@ -1,5 +1,5 @@
-import { proxyData } from '@/lib/service-proxy';
+import { proxyBrain } from '@/lib/service-proxy';
 
 export function GET(request: Request) {
-  return proxyData(request, '/v1/shuttle');
+  return proxyBrain(request, '/v1/shuttle');
 }
