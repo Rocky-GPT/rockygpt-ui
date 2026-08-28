@@ -3,11 +3,18 @@
  * Where the backing services live.
  *
  * This app is a client. It holds no campus data and talks to no database —
- * everything it shows arrives over HTTP from the data service, and every
- * answer from the brain. A native client would use the same two addresses.
+ * every answer, and now every campus fact, arrives over HTTP from the brain.
+ *
+ * `DATA_URL` is development-only. The campus data service was retired once the
+ * brain served these reads directly, and its deployment no longer exists; the
+ * only callers left are the `/api/dev/*` inspectors and the pages behind them,
+ * which read further into the database than the brain exposes (the entity
+ * registry, the data explorer, collector status) and `notFound()` outside
+ * development. Point it at a locally running data service to use those pages.
+ * Nothing in production reads it, and production is not given a value.
  *
  * These addresses stay server-side. Browser calls use the UI's compatibility
- * routes; native clients can call the same public data API directly.
+ * routes; native clients can call the brain's public API directly.
  */
 
 /** The address to use when nothing is configured and nothing is deployed. */
@@ -30,9 +37,11 @@ function trimmed(value: string | undefined): string {
  * outage looked like the data service was broken rather than like a
  * deployment that had never been given its address.
  *
- * Unset in production is a configuration failure and now says so — at
- * `/readiness`, where a deploy check can see it, rather than one panel at a
- * time in someone's browser.
+ * That reasoning still holds for `BRAIN_URL`, which is now the address every
+ * campus route depends on, and `/readiness` reports it the same way. It no
+ * longer holds for `DATA_URL`: production is deliberately not given one, so
+ * `dataAddress()` returning a problem there is the expected state rather than
+ * a misconfiguration, and readiness stopped checking it.
  */
 function mayFallBack(): boolean {
   return process.env.NODE_ENV !== 'production';
