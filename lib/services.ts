@@ -72,12 +72,3 @@ export const DATA_URL = dataAddress().url ?? '';
 
 /** The answering engine. Read on the server only; the chat route proxies it. */
 export const BRAIN_URL = brainAddress().url ?? '';
-
-/** Builds a URL against the data service. */
-export function dataUrl(path: string, params?: Record<string, string | undefined>): string {
-  const url = new URL(`${DATA_URL}${path.startsWith('/') ? path : `/${path}`}`);
-  for (const [key, value] of Object.entries(params ?? {})) {
-    if (value !== undefined && value !== '') url.searchParams.set(key, value);
-  }
-  return url.toString();
-}

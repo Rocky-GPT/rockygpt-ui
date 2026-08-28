@@ -47,17 +47,6 @@ export interface NormalizedDirectoryContact {
   email?: string; phone?: string; office?: string; profileUrl?: string; imageUrl?: string;
   helpsWith?: string[]; searchText: string;
 }
-export interface DirectoryApiResponse {
-  offices: OfficeDirectoryContact[];
-  facultyStaff: FacultyStaffContact[];
-  others: OtherDirectoryContact[];
-  allContacts: NormalizedDirectoryContact[];
-  counts: { offices: number; staffFaculty: number; others: number; total: number };
-  total: number;
-  generatedAt: string;
-  releaseVersion?: string;
-}
-
 export type EntityKind = 'campus_hours' | 'dining_hours' | 'campus_contacts' | 'clubs' | 'programs';
 export interface RegistryEntity { kind: EntityKind; key: string; names: string[]; rowCount: number }
 export interface EntityRegistry { datasetVersion: string; generatedAt: string; entities: RegistryEntity[] }
