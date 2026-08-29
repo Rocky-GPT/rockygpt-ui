@@ -1,5 +1,5 @@
 import 'server-only';
-import { brainAddress, dataAddress } from './services';
+import { brainAddress } from './services';
 
 const RESPONSE_HEADERS = [
   'cache-control',
@@ -19,7 +19,7 @@ function forwardedHeaders(response: Response): Headers {
   return headers;
 }
 
-async function proxy(request: Request, url: string, admin = false): Promise<Response> {
+async function proxy(request: Request, url: string): Promise<Response> {
   const headers = new Headers({ accept: request.headers.get('accept') || 'application/json' });
   const contentType = request.headers.get('content-type');
   const ifNoneMatch = request.headers.get('if-none-match');
@@ -27,12 +27,6 @@ async function proxy(request: Request, url: string, admin = false): Promise<Resp
   if (ifNoneMatch) headers.set('if-none-match', ifNoneMatch);
   const environmentToken = process.env.STAGING_SERVICE_TOKEN?.trim();
   if (environmentToken) headers.set('x-rockygpt-environment-token', environmentToken);
-  if (admin) {
-    const token = process.env.ADMIN_API_TOKEN?.trim();
-    if (!token) return Response.json({ error: 'Admin service is not configured.' }, { status: 503 });
-    headers.set('authorization', `Bearer ${token}`);
-  }
-
   try {
     const upstream = await fetch(url, {
       method: request.method,
@@ -56,24 +50,13 @@ async function proxy(request: Request, url: string, admin = false): Promise<Resp
  *
  * `reason` exists because the browser could not: an unset address and a
  * service that is down both arrived as the same 503 sentence, so a deployment
- * that had never been given `DATA_URL` was indistinguishable from an outage.
+ * that had never been given an address was indistinguishable from an outage.
  */
 function unavailable(message: string, reason: 'unreachable' | 'misconfigured'): Response {
   return Response.json({ error: message, reason }, { status: 503 });
 }
 
-export function proxyData(request: Request, path: string): Promise<Response> {
-  const { url, problem } = dataAddress();
-  if (url === null) {
-    console.error(`Campus data is not configured: ${problem}`);
-    return Promise.resolve(
-      unavailable('Campus data is not configured for this deployment.', 'misconfigured')
-    );
-  }
-  return proxy(request, `${url}${path.startsWith('/') ? path : `/${path}`}`);
-}
-
-export function proxyBrain(request: Request, path: string, admin = false): Promise<Response> {
+export function proxyBrain(request: Request, path: string): Promise<Response> {
   const { url, problem } = brainAddress();
   if (url === null) {
     console.error(`The brain is not configured: ${problem}`);
@@ -81,5 +64,5 @@ export function proxyBrain(request: Request, path: string, admin = false): Promi
       unavailable('The answering engine is not configured for this deployment.', 'misconfigured')
     );
   }
-  return proxy(request, `${url}${path.startsWith('/') ? path : `/${path}`}`, admin);
+  return proxy(request, `${url}${path.startsWith('/') ? path : `/${path}`}`);
 }

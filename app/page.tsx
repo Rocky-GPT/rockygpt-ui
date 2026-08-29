@@ -10,14 +10,12 @@
 'use client';
 
 import { memo, useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { Bot, Bus, Calendar, Check, ChevronRight, ChevronUp, Copy, CreditCard, Download, ExternalLink, FileText, GraduationCap, Info, Layers, MapPin, Pause, Phone, Play, Printer, Send, Shield, Sparkles, Square, ThumbsDown, ThumbsUp, Users, Utensils, X } from 'lucide-react';
-import { buildTranscriptExport, transcriptFileName } from '../chat/transcript-export';
+import { Bot, Bus, Calendar, Check, ChevronRight, ChevronUp, Copy, CreditCard, Download, ExternalLink, FileText, GraduationCap, Info, MapPin, Phone, Printer, Send, Shield, Sparkles, Square, ThumbsDown, ThumbsUp, Users, Utensils, X } from 'lucide-react';
 import { MenuModal } from '@/components/MenuModal';
 import { BusModal } from '@/components/BusModal';
 import { PrintModal } from '@/components/PrintModal';
 import { MapModal } from '@/components/MapModal';
 import { WelcomeModal } from '@/components/WelcomeModal';
-import { BulkQuestionModal } from '@/components/BulkQuestionModal';
 import { PageLoadingScreen } from '@/components/PageLoadingScreen';
 import {
   DirectoryModal,
@@ -34,8 +32,6 @@ import { bindGlobalTapHaptics, destroyHaptics, triggerHaptic } from '@/lib/hapti
 import { useViewportBand } from '@/lib/visual-viewport';
 import { MAX_HISTORY_MESSAGES, MAX_MESSAGE_LENGTH, type ChatTurnV2 } from '@/lib/brain-api';
 import { rockyModeCommandForMessage } from '../chat/rocky-mode';
-import { DevPageMenu } from '@/components/DevPageMenu';
-import { MessageJsonModal, turnPipeline } from '@/components/MessageJsonModal';
 
 interface ChatMessage {
   id: string;
@@ -52,13 +48,6 @@ interface ChatMessage {
   retryUserMessageId?: string;
   isTyping?: boolean;
   brainTrace?: BrainTrace;
-  /**
-   * The response body exactly as received, kept only to back the dev-only
-   * JSON inspector. Held verbatim rather than rebuilt from the fields above
-   * so it still shows anything this component does not model — `route`, for
-   * one, which the brain sends and the UI never reads.
-   */
-  debugPayload?: Record<string, unknown>;
 }
 
 interface Citation {
@@ -73,14 +62,6 @@ interface Citation {
 interface UiAction {
   type: 'VIEW_MENU' | 'VIEW_BUS' | 'VIEW_PRINT' | 'VIEW_EVENTS' | 'VIEW_MAP' | 'VIEW_DIRECTORY';
   payload?: Record<string, string>;
-}
-
-/** What a bulk run turned out to be, once it ended however it ended. */
-interface BulkOutcome {
-  asked: number;
-  total: number;
-  stopped: boolean;
-  reason?: string;
 }
 
 interface BrainTrace {
@@ -129,8 +110,6 @@ class ChatRequestFailure extends Error {
 const IS_DEVELOPMENT = process.env.NODE_ENV === 'development';
 const MAX_HISTORY_TURN_LENGTH = 2000;
 const ANSWER_REVEAL_INTERVAL_MS = 20;
-// How long a bulk run tolerates a loading flag with no request behind it.
-const BULK_STALE_LOADING_MS = 5000;
 const ANSWER_REVEAL_MIN_CHARS = 3;
 const ANSWER_REVEAL_MAX_STEPS = 120;
 let localMessageSequence = 0;
@@ -746,19 +725,7 @@ export default function Home() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatInputRef = useRef<HTMLInputElement>(null);
   const [input, setInput] = useState('');
-  const [copyTranscriptState, setCopyTranscriptState] = useState<
-    'idle' | 'copied' | 'downloaded' | 'failed'
-  >('idle');
-  const exportClickTimerRef = useRef<NodeJS.Timeout | null>(null);
-  useEffect(
-    () => () => {
-      if (exportClickTimerRef.current) clearTimeout(exportClickTimerRef.current);
-    },
-    []
-  );
-
   const [rockyMode, setRockyMode] = useState(false);
-  const [previewMode, setPreviewMode] = useState<'dev' | 'student'>('dev');
   const activeRequestRef = useRef<ActiveChatRequest | null>(null);
   const conversationIdRef = useRef<string | null>(null);
 
@@ -767,62 +734,17 @@ export default function Home() {
     messagesRef.current = messages;
   }, [messages]);
 
-  // `isLoading` mirrored into a ref. Long-lived async callers (the bulk
-  // runner) capture `sendMessage` once and then await across many renders, so
-  // they need a value that is current at await time, not at capture time.
+  // `isLoading` mirrored into a ref, so an async caller that captured
+  // `sendMessage` once still reads a value that is current at await time
+  // rather than at capture time.
   const isLoadingRef = useRef(false);
   const setLoading = (value: boolean) => {
     isLoadingRef.current = value;
     setIsLoading(value);
   };
 
-  // Per-message JSON inspector (Dev Mode only). Holds the id rather than the
-  // message so the panel keeps following that message as it re-renders.
-  const [jsonMessageId, setJsonMessageId] = useState<string | null>(null);
 
-  // Bulk Questions Runner state (Dev Mode only)
-  const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
-  // Set when the runner is opened on the live conversation rather than on the
-  // saved set. Null is "show what was saved".
-  const [bulkPrefill, setBulkPrefill] = useState<string | null>(null);
-  // A double-click fires click first, so the single-click action waits long
-  // enough to be cancelled by the second.
-  const bulkClickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [bulkQueue, setBulkQueue] = useState<string[]>([]);
-  const [bulkIndex, setBulkIndex] = useState(0);
-  const [isBulkRunning, setIsBulkRunning] = useState(false);
-  const [isBulkPaused, setIsBulkPaused] = useState(false);
-  const bulkRunningRef = useRef(false);
-  const bulkPausedRef = useRef(false);
-  // True while the runner is holding for the chat to go idle. Without it the
-  // panel reports "Answering..." next to a question it has not asked yet,
-  // because `isLoading` belongs to whatever was already in flight.
-  const [isBulkAwaitingIdle, setIsBulkAwaitingIdle] = useState(false);
 
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('rockygpt_preview_mode') as 'dev' | 'student' | null;
-      const urlParams = new URLSearchParams(window.location.search);
-      if (urlParams.get('mode') === 'student' || urlParams.get('preview') === 'prod') {
-        setPreviewMode('student');
-      } else if (urlParams.get('mode') === 'dev') {
-        setPreviewMode('dev');
-      } else if (saved === 'student' || saved === 'dev') {
-        setPreviewMode(saved);
-      }
-    }
-  }, []);
-
-  const togglePreviewMode = () => {
-    const next = previewMode === 'dev' ? 'student' : 'dev';
-    setPreviewMode(next);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('rockygpt_preview_mode', next);
-    }
-    triggerHaptic('selection');
-  };
-
-  const isDevViewActive = IS_DEVELOPMENT && previewMode === 'dev';
 
   // Install PWA logic
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
@@ -1037,9 +959,6 @@ export default function Home() {
               uiActions: responseActions,
               suggestedQuestions: responseSuggestions,
               brainTrace: data.brainTrace,
-              debugPayload: IS_DEVELOPMENT
-                ? (data as unknown as Record<string, unknown>)
-                : undefined,
             };
           }
           return msg;
@@ -1095,305 +1014,6 @@ export default function Home() {
 
     return true;
   };
-
-  /** Copy every completed brain trace (model call in, model call out) in chat order. */
-  const copyBrainTraces = async () => {
-    const turns = messages.flatMap((message) =>
-      // The same object the per-message inspector copies, so a transcript and
-      // a single turn paste in the same shape.
-      message.role === 'assistant' && message.brainTrace
-        ? [turnPipeline(message.debugPayload ?? { brainTrace: message.brainTrace })]
-        : []
-    );
-    try {
-      if (turns.length === 0) throw new Error('No brain trace is available.');
-      await navigator.clipboard.writeText(JSON.stringify({ turns }, null, 2));
-      setCopyTranscriptState('copied');
-      triggerHaptic('success');
-    } catch {
-      setCopyTranscriptState('failed');
-      triggerHaptic('error');
-    }
-    window.setTimeout(() => setCopyTranscriptState('idle'), 2000);
-  };
-
-  const downloadTranscript = () => {
-    try {
-      const transcript = buildTranscriptExport(messages, {
-        conversationId: conversationIdRef.current,
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        rockyMode,
-      });
-      const blob = new Blob([JSON.stringify(transcript, null, 2)], {
-        type: 'application/json;charset=utf-8',
-      });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = transcriptFileName(
-        transcript.exportedAt,
-        transcript.timezone,
-        transcript.conversationId
-      );
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      setCopyTranscriptState('downloaded');
-      triggerHaptic('success');
-    } catch {
-      setCopyTranscriptState('failed');
-      triggerHaptic('error');
-    }
-    window.setTimeout(() => setCopyTranscriptState('idle'), 2000);
-  };
-
-  const handleExportClick = () => {
-    if (exportClickTimerRef.current) {
-      clearTimeout(exportClickTimerRef.current);
-      exportClickTimerRef.current = null;
-      downloadTranscript();
-    } else {
-      exportClickTimerRef.current = setTimeout(() => {
-        exportClickTimerRef.current = null;
-        void copyBrainTraces();
-      }, 250);
-    }
-  };
-
-  /**
-   * Runs the queue and reports what actually happened.
-   *
-   * The return value matters to the terminal remote: a run stopped from the
-   * panel used to leave the CLI printing the full queue length as if it had
-   * finished, which is the UI's decision being overruled by a caller that
-   * never heard about it.
-   */
-  const startBulkSequence = async (
-    questions: string[],
-    delayMs: number
-  ): Promise<BulkOutcome> => {
-    if (questions.length === 0) return { asked: 0, total: 0, stopped: false };
-    setBulkQueue(questions);
-    setBulkIndex(0);
-    setIsBulkRunning(true);
-    setIsBulkPaused(false);
-    bulkRunningRef.current = true;
-    bulkPausedRef.current = false;
-    triggerHaptic('selection');
-
-    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-    let asked = 0;
-    let reason: string | undefined;
-
-    /** Blocks while paused. Returns false if the run was stopped meanwhile. */
-    const settlePause = async () => {
-      while (bulkPausedRef.current && bulkRunningRef.current) {
-        await sleep(200);
-      }
-      return bulkRunningRef.current;
-    };
-
-    /**
-     * The chat drops a message sent while another one is in flight, so a run
-     * started mid-answer would silently discard every question in the queue.
-     * Wait for the chat to go idle instead of firing into it.
-     *
-     * A real in-flight request is waited on for as long as it takes: answers
-     * are slow, and a backgrounded tab throttles the reveal timers to a crawl,
-     * neither of which is a reason to abandon the run. Stop is the way out.
-     * Only a loading flag with no request behind it — a desync that should not
-     * happen — gets a deadline.
-     */
-    const waitForIdle = async () => {
-      let staleLoadingSince: number | null = null;
-      while (activeRequestRef.current || isLoadingRef.current) {
-        if (!bulkRunningRef.current) return false;
-        if (activeRequestRef.current) {
-          staleLoadingSince = null;
-        } else {
-          staleLoadingSince ??= Date.now();
-          if (Date.now() - staleLoadingSince > BULK_STALE_LOADING_MS) return false;
-        }
-        await sleep(150);
-      }
-      return true;
-    };
-
-    /**
-     * A run that ends early used to just make the panel disappear, which reads
-     * exactly like a clean finish. Say so in the transcript instead.
-     */
-    const reportEarlyStop = (reason: string, remaining: number) => {
-      setMessages((prev) => [
-        ...prev,
-        {
-          ...createLocalMessageIdentity(),
-          role: 'assistant',
-          content: `Bulk run stopped early: ${reason}. ${remaining} question${
-            remaining === 1 ? '' : 's'
-          } left unasked.`,
-          isError: true,
-        } as ChatMessage,
-      ]);
-    };
-
-    for (let i = 0; i < questions.length; i++) {
-      if (!bulkRunningRef.current) {
-        reason = 'stopped from the panel';
-        break;
-      }
-      if (!(await settlePause())) {
-        reason = 'stopped from the panel';
-        break;
-      }
-
-      setIsBulkAwaitingIdle(true);
-      const becameIdle = await waitForIdle();
-      setIsBulkAwaitingIdle(false);
-      if (!becameIdle) {
-        // Stopping is the user's own doing and needs no report; anything else
-        // means the chat never freed up.
-        reason = bulkRunningRef.current
-          ? 'the chat never became available'
-          : 'stopped from the panel';
-        if (bulkRunningRef.current) {
-          reportEarlyStop('the chat never became available', questions.length - i);
-        }
-        break;
-      }
-
-      setBulkIndex(i);
-      const q = questions[i];
-      if (q && !(await sendMessage(q, messagesRef.current))) {
-        // Refused rather than sent: stop instead of racing through the rest of
-        // the queue asking nothing.
-        reportEarlyStop('the chat refused the next question', questions.length - i);
-        reason = 'the chat refused the next question';
-        break;
-      }
-      asked += 1;
-
-      if (!bulkRunningRef.current) {
-        reason = 'stopped from the panel';
-        break;
-      }
-
-      // Delay between questions so the run is watchable. Paused time does not
-      // count against it, otherwise resuming fires the next question instantly.
-      if (i < questions.length - 1) {
-        let remaining = delayMs;
-        while (remaining > 0 && bulkRunningRef.current) {
-          if (bulkPausedRef.current) {
-            await sleep(200);
-            continue;
-          }
-          const step = Math.min(100, remaining);
-          await sleep(step);
-          remaining -= step;
-        }
-      }
-    }
-
-    bulkRunningRef.current = false;
-    setIsBulkRunning(false);
-    setIsBulkPaused(false);
-    setIsBulkAwaitingIdle(false);
-    return { asked, total: questions.length, stopped: asked < questions.length, reason };
-  };
-
-  const pauseBulkSequence = () => {
-    bulkPausedRef.current = true;
-    setIsBulkPaused(true);
-    triggerHaptic('selection');
-  };
-
-  const resumeBulkSequence = () => {
-    bulkPausedRef.current = false;
-    setIsBulkPaused(false);
-    triggerHaptic('selection');
-  };
-
-  const stopBulkSequence = () => {
-    bulkRunningRef.current = false;
-    bulkPausedRef.current = false;
-    setIsBulkRunning(false);
-    setIsBulkPaused(false);
-    stopGeneration();
-    triggerHaptic('warning');
-  };
-
-  // Terminal remote control (Dev View only).
-  //
-  // Commands run through the page rather than around it — a remote `ask` calls
-  // the same `sendMessage` a keystroke does — so what the terminal drives is
-  // what a student would have got, and it is visible in the tab while it runs.
-  useEffect(() => {
-    if (!isDevViewActive) return;
-    const source = new EventSource('/api/remote');
-
-    const report = (id: string, value: unknown) =>
-      fetch('/api/remote', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ resultFor: id, value }),
-      }).catch(() => undefined);
-
-    source.onmessage = (event) => {
-      const command = JSON.parse(event.data) as {
-        id: string;
-        type: string;
-        text?: string;
-        questions?: string[];
-        delayMs?: number;
-      };
-      if (command.type === 'ask' && command.text) {
-        void sendMessage(command.text).then(async (ok) => {
-          // `sendMessage` resolves while the answer is still being revealed a
-          // character at a time, so the message it leaves behind is half
-          // written and has no trace yet. Wait for the trace to land — it
-          // arrives with the finished content — and give up rather than hang
-          // on an error turn, which never gets one.
-          const settled = await new Promise<ChatMessage | undefined>((resolve) => {
-            const deadline = Date.now() + 20_000;
-            const poll = () => {
-              const last = messagesRef.current[messagesRef.current.length - 1];
-              if (last?.brainTrace || Date.now() > deadline) resolve(last);
-              else setTimeout(poll, 100);
-            };
-            poll();
-          });
-          // The same object `Copy all JSON` puts on the clipboard, so what the
-          // terminal prints and what the panel copies cannot drift apart.
-          // `ok` is false when the chat refused the question outright; a
-          // `Stop` press mid-answer instead leaves a message with no trace,
-          // because the trace only lands with a finished turn. Either way the
-          // terminal is told, rather than being shown a success it did not get.
-          const stopped = !ok || (!settled?.brainTrace && !settled?.isError);
-          report(command.id, {
-            ok: ok && !stopped,
-            stopped,
-            answer: settled?.content ?? null,
-            turn: settled?.brainTrace
-              ? turnPipeline(settled.debugPayload ?? { brainTrace: settled.brainTrace })
-              : null,
-          });
-        });
-      } else if (command.type === 'bulk' && command.questions?.length) {
-        void startBulkSequence(command.questions, command.delayMs ?? 1500).then((outcome) =>
-          report(command.id, { ok: !outcome.stopped, ...outcome })
-        );
-      } else if (command.type === 'clear') {
-        setMessages([]);
-        report(command.id, { ok: true });
-      }
-    };
-    return () => source.close();
-    // `sendMessage` and `startBulkSequence` are redefined every render; binding
-    // the listener to them would tear the stream down and rebuild it on every
-    // keystroke, so the effect deliberately depends only on the dev flag.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isDevViewActive]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1537,7 +1157,6 @@ export default function Home() {
   // for anything the last answer did not happen to suggest.
   const shouldShowComposerSuggestions =
     !isLoading &&
-    !isBulkRunning &&
     !isActionMenuOpen &&
     !input.trim() &&
     latestMessage?.role === 'assistant' &&
@@ -1548,47 +1167,14 @@ export default function Home() {
     <div className="relative flex min-h-dvh flex-col overflow-x-clip font-sans">
       <header className={`sticky top-0 z-50 bg-background ${isSplashDismissed ? 'animate-hero-header' : 'opacity-0'}`}>
         <div className="container flex h-14 max-w-2xl mx-auto items-center justify-between px-4">
-          {isDevViewActive ? (
-            <DevPageMenu title="RockyGPT" />
-          ) : (
-            <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-black text-white">
-                <Bot className="h-5 w-5" />
-              </div>
-              <span className="text-lg font-semibold tracking-tight">RockyGPT</span>
+          <div className="flex items-center gap-2">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-black text-white">
+              <Bot className="h-5 w-5" />
             </div>
-          )}
+            <span className="text-lg font-semibold tracking-tight">RockyGPT</span>
+          </div>
 
           <div className="flex items-center gap-1.5">
-            {IS_DEVELOPMENT && (
-              <button
-                type="button"
-                onClick={togglePreviewMode}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full transition-all text-xs font-semibold border ${
-                  previewMode === 'student'
-                    ? 'bg-amber-500/10 text-amber-300 border-amber-500/30 hover:bg-amber-500/20'
-                    : 'bg-sky-500/10 text-sky-300 border-sky-500/30 hover:bg-sky-500/20'
-                }`}
-                title={
-                  previewMode === 'student'
-                    ? 'Currently mirroring Production Student View. Click to switch to Dev View.'
-                    : 'Currently in Dev View. Click to mirror Production Student View.'
-                }
-              >
-                {previewMode === 'student' ? (
-                  <>
-                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
-                    <span>Student View</span>
-                  </>
-                ) : (
-                  <>
-                    <span className="h-1.5 w-1.5 rounded-full bg-sky-400" />
-                    <span>Dev View</span>
-                  </>
-                )}
-              </button>
-            )}
-
             <button
               type="button"
               onClick={() => setIsWelcomeModalOpen(true)}
@@ -1732,16 +1318,6 @@ export default function Home() {
                             {formatTimestamp(m.timestamp)}
                           </span>
                         )}
-                        {isDevViewActive && !m.isTyping && (
-                          <button
-                            type="button"
-                            onClick={() => setJsonMessageId(m.id)}
-                            title="Inspect the raw response for this message"
-                            className="mt-0.5 rounded-full border border-sky-400/30 bg-sky-400/10 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wide text-sky-300 transition-colors hover:bg-sky-400/20 hover:text-sky-200"
-                          >
-                            JSON
-                          </button>
-                        )}
                       </div>
                     </div>
                     {m.isError ? (
@@ -1755,7 +1331,7 @@ export default function Home() {
                             Support ID: <code>{m.requestId}</code>
                           </p>
                         )}
-                        {m.retryContent && !isBulkRunning && (
+                        {m.retryContent && (
                           <button
                             type="button"
                             onClick={() => retryMessage(m)}
@@ -2043,8 +1619,7 @@ export default function Home() {
         )}
 
         <div className="mx-auto flex max-w-2xl min-w-0 items-center gap-2 sm:gap-3">
-          {!isBulkRunning && (
-            <button
+          <button
               id="action-menu-trigger"
               ref={actionMenuTriggerRef}
               type="button"
@@ -2057,93 +1632,6 @@ export default function Home() {
             >
               <ChevronUp aria-hidden="true" className="w-6 h-6 text-white" />
             </button>
-          )}
-          {isDevViewActive && isBulkRunning ? (
-            <div className="relative flex min-h-[64px] min-w-0 flex-1 items-center justify-between gap-3 rounded-2xl border border-amber-500/40 bg-neutral-950/95 px-4 py-3 shadow-lg backdrop-blur-xl animate-in fade-in zoom-in-95 duration-200">
-              <div className="flex items-center gap-3 min-w-0 flex-1">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30">
-                  <Layers className="h-4.5 w-4.5" />
-                </div>
-                <div className="min-w-0 flex-1 space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-amber-300">
-                      Bulk Runner
-                    </span>
-                    <span className="text-[11px] font-semibold text-neutral-300 bg-neutral-800/90 px-2 py-0.5 rounded-full border border-white/5">
-                      {bulkIndex + 1} of {bulkQueue.length}
-                    </span>
-                    {isBulkAwaitingIdle ? (
-                      <span className="flex items-center gap-1 text-[11px] font-medium text-neutral-400">
-                        Waiting for chat...
-                      </span>
-                    ) : isLoading ? (
-                      <span className="flex items-center gap-1 text-[11px] font-medium text-sky-400 animate-pulse">
-                        Answering...
-                      </span>
-                    ) : (
-                      <span className="flex items-center gap-1 text-[11px] font-medium text-emerald-400">
-                        Waiting next...
-                      </span>
-                    )}
-                    {isBulkPaused && (
-                      <span className="flex items-center gap-1 text-[11px] font-medium text-amber-400">
-                        <Pause className="h-3 w-3" /> Paused
-                      </span>
-                    )}
-                  </div>
-                  <p className="truncate text-xs text-neutral-300 font-mono">
-                    {bulkQueue[bulkIndex]}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2.5 shrink-0">
-                <div className="hidden sm:block w-20 sm:w-28 h-2 bg-neutral-800 rounded-full overflow-hidden border border-white/5">
-                  <div
-                    className="bg-amber-400 h-full transition-all duration-300"
-                    style={{
-                      width: `${Math.round(((bulkIndex + 1) / Math.max(bulkQueue.length, 1)) * 100)}%`,
-                    }}
-                  />
-                </div>
-
-                {isBulkPaused ? (
-                  <button
-                    type="button"
-                    onClick={resumeBulkSequence}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-xs font-bold transition-all cursor-pointer shadow-sm"
-                    aria-label="Resume sequence"
-                    title="Resume sequence"
-                  >
-                    <Play className="h-3.5 w-3.5 fill-current" />
-                    <span className="hidden xs:inline">Resume</span>
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={pauseBulkSequence}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 text-xs font-bold transition-all cursor-pointer shadow-sm"
-                    aria-label="Pause sequence"
-                    title="Pause sequence"
-                  >
-                    <Pause className="h-3.5 w-3.5 fill-current" />
-                    <span className="hidden xs:inline">Pause</span>
-                  </button>
-                )}
-
-                <button
-                  type="button"
-                  onClick={stopBulkSequence}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/30 text-xs font-bold transition-all cursor-pointer shadow-sm"
-                  aria-label="Stop sequence"
-                  title="Stop sequence"
-                >
-                  <Square className="h-3.5 w-3.5 fill-current" />
-                  <span className="hidden xs:inline">Stop</span>
-                </button>
-              </div>
-            </div>
-          ) : (
             <form
               onSubmit={handleSubmit}
               className="relative flex min-w-0 flex-1 items-center rounded-2xl border border-border bg-muted focus-within:ring-2 focus-within:ring-[#f4a8b5] focus-within:ring-offset-2 focus-within:ring-offset-background"
@@ -2183,57 +1671,6 @@ export default function Home() {
                 </button>
               )}
             </form>
-          )}
-          {isDevViewActive && !isBulkRunning && (
-            <button
-              type="button"
-              onClick={() => {
-                if (bulkClickTimer.current) clearTimeout(bulkClickTimer.current);
-                bulkClickTimer.current = setTimeout(() => {
-                  setBulkPrefill(null);
-                  setIsBulkModalOpen(true);
-                }, 220);
-              }}
-              onDoubleClick={() => {
-                if (bulkClickTimer.current) clearTimeout(bulkClickTimer.current);
-                const asked = messages
-                  .filter((message) => message.role === 'user' && message.content.trim())
-                  .map((message) => message.content.trim());
-                setBulkPrefill(asked.join('\n'));
-                setIsBulkModalOpen(true);
-              }}
-              aria-label="Bulk Questions Runner"
-              title="Click to run the saved set; double-click to load this conversation"
-              className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-muted text-muted-foreground transition-colors hover:border-amber-500/40 hover:bg-amber-500/10 hover:text-amber-300 cursor-pointer"
-            >
-              <Layers aria-hidden="true" className="h-5 w-5" />
-            </button>
-          )}
-          {isDevViewActive && !isBulkRunning && messages.length > 0 && (
-            <button
-              type="button"
-              onClick={handleExportClick}
-              aria-label="Copy transcript (click to copy full chat JSON, double-click to download)"
-              title="Click to copy all brain IN/OUT turns; double-click to download transcript"
-              className={`flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl border transition-colors cursor-pointer ${
-                copyTranscriptState === 'copied'
-                  ? 'border-emerald-500/50 bg-emerald-500/15 text-emerald-300'
-                  : copyTranscriptState === 'downloaded'
-                    ? 'border-sky-500/50 bg-sky-500/15 text-sky-300'
-                    : copyTranscriptState === 'failed'
-                      ? 'border-red-500/50 bg-red-500/15 text-red-300'
-                      : 'border-white/10 bg-muted text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              {copyTranscriptState === 'copied' ? (
-                <Check aria-hidden="true" className="h-5 w-5" />
-              ) : copyTranscriptState === 'downloaded' ? (
-                <Download aria-hidden="true" className="h-5 w-5" />
-              ) : (
-                <Copy aria-hidden="true" className="h-5 w-5" />
-              )}
-            </button>
-          )}
         </div>
         <div className="mx-auto mt-1 max-w-2xl px-1">
           <p className="rounded-xl bg-background/90 px-3 py-1 text-center text-xs leading-4 text-muted-foreground shadow-sm">
@@ -2265,36 +1702,6 @@ export default function Home() {
       <ClubsModal isOpen={isClubsModalOpen} onClose={() => setIsClubsModalOpen(false)} />
       <CalendarModal isOpen={isCalendarModalOpen} onClose={() => setIsCalendarModalOpen(false)} />
       <MajorsModal isOpen={isMajorsModalOpen} onClose={() => setIsMajorsModalOpen(false)} />
-      <BulkQuestionModal
-        isOpen={isBulkModalOpen}
-        onClose={() => setIsBulkModalOpen(false)}
-        onStartSequence={startBulkSequence}
-        prefill={bulkPrefill}
-      />
-      {(() => {
-        // Resolved at render so a message updated after the panel opened
-        // shows its current payload rather than a snapshot.
-        const jsonMessage = jsonMessageId
-          ? messages.find((msg) => msg.id === jsonMessageId)
-          : undefined;
-        // The turns the panel can show, in transcript order, so the arrow keys
-        // step over answers and skip the questions and errors between them.
-        const inspectable = messages.filter((msg) => msg.role === 'assistant' && msg.brainTrace);
-        const at = inspectable.findIndex((msg) => msg.id === jsonMessageId);
-        const step = (to: number) => () => setJsonMessageId(inspectable[to].id);
-        return (
-          <MessageJsonModal
-            isOpen={isDevViewActive && !!jsonMessage}
-            onClose={() => setJsonMessageId(null)}
-            question={jsonMessage?.question}
-            requestId={jsonMessage?.requestId}
-            timestamp={jsonMessage?.timestamp}
-            payload={jsonMessage?.debugPayload}
-            onPrev={at > 0 ? step(at - 1) : undefined}
-            onNext={at >= 0 && at < inspectable.length - 1 ? step(at + 1) : undefined}
-          />
-        );
-      })()}
       <WelcomeModal
         isOpen={isWelcomeModalOpen}
         onClose={handleCloseWelcome}
@@ -2331,21 +1738,6 @@ export default function Home() {
         </div>
       )}
 
-      {IS_DEVELOPMENT && previewMode === 'student' && (
-        <div className="fixed bottom-20 left-4 z-40 animate-in fade-in slide-in-from-bottom-2 duration-200">
-          <button
-            type="button"
-            onClick={togglePreviewMode}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-neutral-900/95 text-neutral-300 hover:text-white border border-amber-500/40 text-xs font-medium backdrop-blur-md shadow-xl transition-all hover:scale-105 active:scale-95"
-            title="Click to exit Student View and return to Dev View"
-          >
-            <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
-            <span className="font-semibold text-amber-300">Student Preview</span>
-            <span className="text-neutral-600">|</span>
-            <span className="text-sky-400 font-semibold hover:underline">Exit to Dev ⚡</span>
-          </button>
-        </div>
-      )}
     </div>
   );
 }
