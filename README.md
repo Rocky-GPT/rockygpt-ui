@@ -9,7 +9,7 @@ to the brain and data services.
 ## Running
 
     npm install
-    cp .env.example .env      # set BRAIN_URL, DATA_URL, and ADMIN_API_TOKEN
+    cp .env.example .env      # set BRAIN_URL
     npm run dev
 
 The brain must be running for chat to work and data must be running for campus

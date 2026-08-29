@@ -4,15 +4,15 @@
  *
  * Two things stop it, and they are not the same thing: a service that is down,
  * and a service this deployment was never told the address of. Reporting both
- * as "data is failing" is what let an unset `DATA_URL` look like an outage —
- * so `misconfigured` names the one a deploy fixes and a restart does not.
+ * as "the service is failing" is what once let an unset address look like an
+ * outage — so `misconfigured` names the one a deploy fixes and a restart does
+ * not.
  *
- * The campus data service is no longer among them. Every production route now
- * reads campus data from the brain, so an unreachable data service can no
- * longer stop this deployment serving and must not hold readiness down. Only
- * `/api/dev/*` still calls it, and those 404 outside development. The shape
- * below keeps room for more than one service because the distinction above is
- * the point, not the count.
+ * Only the brain is checked. It is the single service this app depends on: the
+ * campus data service was retired, and the development-only pages that were
+ * its last callers now live in `rockygpt-dev`. The shape below keeps room for
+ * more than one service because the distinction above is the point, not the
+ * count.
  */
 
 import { brainAddress } from '@/lib/services';

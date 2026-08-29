@@ -47,32 +47,3 @@ export interface NormalizedDirectoryContact {
   email?: string; phone?: string; office?: string; profileUrl?: string; imageUrl?: string;
   helpsWith?: string[]; searchText: string;
 }
-export type EntityKind = 'campus_hours' | 'dining_hours' | 'campus_contacts' | 'clubs' | 'programs';
-export interface RegistryEntity { kind: EntityKind; key: string; names: string[]; rowCount: number }
-export interface EntityRegistry { datasetVersion: string; generatedAt: string; entities: RegistryEntity[] }
-export type EntityRow = Record<string, string | null>;
-
-export type TimestampBasis = 'collector-provenance' | 'embedded-timestamp' | 'file-modified-estimate' | 'missing';
-export type FreshnessStatus = 'fresh' | 'stale' | 'unknown' | 'manual';
-export interface ScrapeSourceStatus {
-  id: string;
-  title: string;
-  category: string;
-  mode: 'API' | 'HTML crawl' | 'Browser' | 'Hybrid';
-  summary: string;
-  capturedData: string[];
-  method: string;
-  automation: string;
-  commands: string[];
-  sourceUrls: Array<{ label: string; url: string }>;
-  caveat?: string;
-  artifacts: Array<{
-    label: string; file: string; role: 'primary' | 'supplemental'; exists: boolean;
-    fetchedAt: string | null; timestampBasis: TimestampBasis; timestampDetail: string; summary?: string;
-  }>;
-  freshnessHours: number | null;
-  freshnessStatus: FreshnessStatus;
-  ageHours: number | null;
-  lastFetchedAt: string | null;
-  timestampBasis: TimestampBasis;
-}
