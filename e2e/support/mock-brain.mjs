@@ -35,7 +35,9 @@ const server = createServer((request, response) => {
       return;
     }
 
-    if (payload.message === '__mock_upstream_rate_limit__') {
+    const lastMessage = Array.isArray(payload.messages) ? payload.messages.at(-1) : undefined;
+
+    if (lastMessage?.content === '__mock_upstream_rate_limit__') {
       json(
         response,
         429,
@@ -54,7 +56,9 @@ const server = createServer((request, response) => {
 
     json(response, 200, {
       requestId: 'mock-success',
-      answer: `Answer for: ${payload.message}`,
+      answer: `Answer for: ${lastMessage?.content ?? ''}`,
+      model: 'mock-model',
+      receivedRequest: payload,
       citations: [],
       route: 'standard',
       uiActions: [],
