@@ -30,8 +30,7 @@ import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { bindGlobalTapHaptics, destroyHaptics, triggerHaptic } from '@/lib/haptics';
 import { useViewportBand } from '@/lib/visual-viewport';
-import { MAX_HISTORY_MESSAGES, MAX_MESSAGE_LENGTH, type ChatTurnV2 } from '@/lib/brain-api';
-import { rockyModeCommandForMessage } from '../chat/rocky-mode';
+import { MAX_MESSAGE_LENGTH, type ChatMessageInput } from '@/lib/brain-api';
 
 interface ChatMessage {
   id: string;
@@ -108,7 +107,6 @@ class ChatRequestFailure extends Error {
 
 // Active during local development (`npm run dev`) for instant inspection; automatically hidden in production builds
 const IS_DEVELOPMENT = process.env.NODE_ENV === 'development';
-const MAX_HISTORY_TURN_LENGTH = 2000;
 const ANSWER_REVEAL_INTERVAL_MS = 20;
 const ANSWER_REVEAL_MIN_CHARS = 3;
 const ANSWER_REVEAL_MAX_STEPS = 120;
@@ -303,6 +301,26 @@ const AnswerMarkdown = memo(function AnswerMarkdown({
       strong: ({ ...props }) => (
         <strong className="font-semibold text-foreground" {...props} />
       ),
+      em: ({ ...props }) => <em className="italic text-foreground/90" {...props} />,
+      h1: ({ ...props }) => (
+        <h1 className="mb-2 mt-5 text-xl font-semibold leading-tight text-foreground first:mt-0" {...props} />
+      ),
+      h2: ({ ...props }) => (
+        <h2 className="mb-2 mt-5 text-lg font-semibold leading-tight text-foreground first:mt-0" {...props} />
+      ),
+      h3: ({ ...props }) => (
+        <h3 className="mb-2 mt-4 text-base font-semibold leading-snug text-foreground first:mt-0" {...props} />
+      ),
+      h4: ({ ...props }) => (
+        <h4 className="mb-2 mt-4 text-sm font-semibold leading-snug text-foreground first:mt-0" {...props} />
+      ),
+      ul: ({ ...props }) => (
+        <ul className="mb-3 list-disc space-y-1 pl-6 marker:text-muted-foreground" {...props} />
+      ),
+      ol: ({ ...props }) => (
+        <ol className="mb-3 list-decimal space-y-1 pl-6 marker:text-muted-foreground" {...props} />
+      ),
+      li: ({ ...props }) => <li className="pl-1 leading-7" {...props} />,
       a: ({ href, children, ...props }) => {
         const textContent =
           typeof children === 'string'
@@ -375,6 +393,25 @@ const AnswerMarkdown = memo(function AnswerMarkdown({
         );
       },
       p: ({ ...props }) => <p className="mb-3 last:mb-0" {...props} />,
+      code: ({ ...props }) => (
+        <code
+          className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[0.88em] text-foreground"
+          {...props}
+        />
+      ),
+      pre: ({ ...props }) => (
+        <pre
+          className="my-4 overflow-x-auto rounded-xl border border-border/50 bg-muted/50 p-4 font-mono text-xs leading-6 text-foreground [&>code]:bg-transparent [&>code]:p-0"
+          {...props}
+        />
+      ),
+      blockquote: ({ ...props }) => (
+        <blockquote
+          className="my-4 border-l-2 border-rose-400/50 pl-4 text-muted-foreground"
+          {...props}
+        />
+      ),
+      hr: () => <hr className="my-5 border-border/60" />,
       table: ({ ...props }) => (
         <div className="my-4 overflow-x-auto rounded-xl border border-border/50 scrollbar-none">
           <table className="w-full border-collapse text-xs sm:text-sm" {...props} />
@@ -456,57 +493,17 @@ function cleanSuggestedQuestions(value: unknown): string[] {
     .slice(0, 3);
 }
 
-const ANONYMOUS_CONVERSATION_KEY = 'rockygpt_anonymous_conversation_v1';
 const LEGACY_VISITOR_STORAGE_KEY = 'rockygpt_visitor_id';
-const CONVERSATION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function generateUUID(): string {
-  if (typeof window !== 'undefined' && typeof window.crypto?.randomUUID === 'function') {
-    return window.crypto.randomUUID();
-  }
-  if (typeof window !== 'undefined' && typeof window.crypto?.getRandomValues === 'function') {
-    const bytes = new Uint8Array(16);
-    window.crypto.getRandomValues(bytes);
-    bytes[6] = (bytes[6] & 0x0f) | 0x40;
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
-    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-  }
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === 'x' ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
+function buildRequestMessages(
+  messages: ChatMessage[],
+  currentUserMessage: ChatMessage
+): ChatMessageInput[] {
+  const conversation = messages.flatMap<ChatMessageInput>((message) => {
+    if (message.isError || !message.content) return [];
+    return [{ role: message.role, content: message.content }];
   });
-}
-
-function getOrCreateConversationId(): string {
-  try {
-    const existing = window.sessionStorage.getItem(ANONYMOUS_CONVERSATION_KEY);
-    if (existing && CONVERSATION_ID_PATTERN.test(existing)) return existing.toLowerCase();
-    const created = generateUUID();
-    window.sessionStorage.setItem(ANONYMOUS_CONVERSATION_KEY, created);
-    return created;
-  } catch {
-    return generateUUID();
-  }
-}
-
-function buildRequestHistory(messages: ChatMessage[]): ChatTurnV2[] {
-  const history: ChatTurnV2[] = [];
-
-  for (let index = messages.length - 1; index >= 0 && history.length < MAX_HISTORY_MESSAGES; index--) {
-    const message = messages[index];
-    if (message.isError) continue;
-    const content = message.content.trim();
-    if (!content) continue;
-
-    history.push({
-      role: message.role,
-      content: content.slice(0, MAX_HISTORY_TURN_LENGTH),
-    });
-  }
-
-  return history.reverse();
+  conversation.push({ role: currentUserMessage.role, content: currentUserMessage.content });
+  return conversation;
 }
 
 function retryDelayLabel(rawValue: string | null): string | null {
@@ -725,9 +722,7 @@ export default function Home() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatInputRef = useRef<HTMLInputElement>(null);
   const [input, setInput] = useState('');
-  const [rockyMode, setRockyMode] = useState(false);
   const activeRequestRef = useRef<ActiveChatRequest | null>(null);
-  const conversationIdRef = useRef<string | null>(null);
 
   const messagesRef = useRef<ChatMessage[]>(messages);
   useEffect(() => {
@@ -840,15 +835,6 @@ export default function Home() {
     }
 
     const userIdentity = createLocalMessageIdentity();
-    const rockyModeCommand = rockyModeCommandForMessage(normalizedContent);
-    const requestedStyleMode =
-      rockyModeCommand === 'enable'
-        ? 'rocky'
-        : rockyModeCommand === 'disable'
-          ? 'standard'
-          : rockyMode
-            ? 'rocky'
-            : 'standard';
     const userMessage: ChatMessage = {
       ...userIdentity,
       role: 'user',
@@ -873,24 +859,14 @@ export default function Home() {
     activeRequestRef.current = { controller, assistantMessageId };
 
     try {
-      const history = buildRequestHistory(historyMessages);
-      const conversationId = conversationIdRef.current || getOrCreateConversationId();
-      conversationIdRef.current = conversationId;
+      const requestMessages = buildRequestMessages(historyMessages, userMessage);
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Accept: 'application/json',
         },
-        body: JSON.stringify({
-          message: userMessage.content,
-          history,
-          conversationId,
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-          locale: navigator.language,
-          responseMode: 'concise',
-          styleMode: requestedStyleMode,
-        }),
+        body: JSON.stringify({ messages: requestMessages }),
         signal: controller.signal,
       });
 
@@ -908,9 +884,6 @@ export default function Home() {
           'RockyGPT returned an incomplete answer. Please try again.',
           data.requestId || response.headers.get('X-Request-Id') || undefined
         );
-      }
-      if (rockyModeCommand) {
-        setRockyMode(rockyModeCommand === 'enable');
       }
       if (controller.signal.aborted || activeRequestRef.current?.controller !== controller)
         return true;

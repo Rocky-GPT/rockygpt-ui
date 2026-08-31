@@ -2,11 +2,8 @@ import { NextResponse } from 'next/server';
 import {
   askBrain,
   BrainUnreachableError,
-  detectQuestionOrigin,
-  MAX_HISTORY_MESSAGES,
-  MAX_MESSAGE_LENGTH,
+  type ChatMessageInput,
   type ChatRequest,
-  type ChatTurnV2,
 } from '@/lib/brain-api';
 import {
   checkChatRateLimit,
@@ -17,14 +14,6 @@ import {
 export const runtime = 'nodejs';
 
 const MAX_CHAT_BODY_BYTES = 64 * 1_024;
-const MAX_IDENTIFIER_LENGTH = 128;
-const MAX_OPTION_LENGTH = 32;
-const MAX_TIMEZONE_LENGTH = 100;
-const VISITOR_COOKIE = 'rockygpt_visitor_id';
-const VISITOR_COOKIE_AGE_SECONDS = 60 * 60 * 24 * 30;
-const IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
-const OPTION_PATTERN = /^[A-Za-z0-9_-]+$/;
-const TIMEZONE_PATTERN = /^[A-Za-z0-9_+./:-]+$/;
 
 class RequestValidationError extends Error {
   constructor(
@@ -37,57 +26,29 @@ class RequestValidationError extends Error {
   }
 }
 
-interface ParsedChatRequest {
-  brainRequest: ChatRequest;
-  sourcePayload: Record<string, unknown>;
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
-function boundedOptionalText(
-  payload: Record<string, unknown>,
-  key: string,
-  maxLength: number,
-  pattern?: RegExp
-): string | undefined {
-  const value = payload[key];
-  if (value === undefined) return undefined;
-  if (typeof value !== 'string') {
-    throw new RequestValidationError(`${key} must be a string`);
+function readMessages(value: unknown): ChatMessageInput[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new RequestValidationError('messages must be a non-empty array');
   }
 
-  const normalized = value.trim();
-  if (!normalized) return undefined;
-  if (normalized.length > maxLength || (pattern && !pattern.test(normalized))) {
-    throw new RequestValidationError(`${key} is invalid`);
-  }
-  return normalized;
-}
-
-function readHistory(value: unknown): ChatTurnV2[] {
-  if (value === undefined) return [];
-  if (!Array.isArray(value)) {
-    throw new RequestValidationError('history must be an array');
-  }
-  if (value.length > MAX_HISTORY_MESSAGES) {
-    throw new RequestValidationError(`history may contain at most ${MAX_HISTORY_MESSAGES} turns`);
-  }
-
-  return value.map((turn, index) => {
-    if (!isRecord(turn) || (turn.role !== 'user' && turn.role !== 'assistant')) {
-      throw new RequestValidationError(`history[${index}] has an invalid role`);
+  return value.map((message, index) => {
+    if (!isRecord(message)) {
+      throw new RequestValidationError(`messages[${index}] must be an object`);
     }
-    if (typeof turn.content !== 'string' || !turn.content.trim()) {
-      throw new RequestValidationError(`history[${index}].content is required`);
+    if (Object.keys(message).some((key) => key !== 'role' && key !== 'content')) {
+      throw new RequestValidationError(`messages[${index}] has unsupported fields`);
     }
-    if (turn.content.length > MAX_MESSAGE_LENGTH) {
-      throw new RequestValidationError(
-        `history[${index}].content may contain at most ${MAX_MESSAGE_LENGTH} characters`
-      );
+    if (message.role !== 'user' && message.role !== 'assistant') {
+      throw new RequestValidationError(`messages[${index}].role is invalid`);
     }
-    return { role: turn.role, content: turn.content.trim() };
+    if (typeof message.content !== 'string' || !message.content.trim()) {
+      throw new RequestValidationError(`messages[${index}].content is required`);
+    }
+    return { role: message.role, content: message.content };
   });
 }
 
@@ -115,90 +76,18 @@ async function readBoundedBody(request: Request): Promise<string> {
   return body + decoder.decode();
 }
 
-async function parseChatRequest(request: Request): Promise<ParsedChatRequest> {
+async function parseChatRequest(request: Request): Promise<ChatRequest> {
   const rawBody = await readBoundedBody(request);
-
   let body: unknown;
   try {
     body = JSON.parse(rawBody);
   } catch {
     throw new RequestValidationError('invalid JSON body');
   }
-  if (!isRecord(body)) {
-    throw new RequestValidationError('request body must be a JSON object');
+  if (!isRecord(body) || Object.keys(body).some((key) => key !== 'messages')) {
+    throw new RequestValidationError('request must contain only messages');
   }
-
-  if (typeof body.message !== 'string' || !body.message.trim()) {
-    throw new RequestValidationError('message is required');
-  }
-  if (body.message.length > MAX_MESSAGE_LENGTH) {
-    throw new RequestValidationError(
-      `message may contain at most ${MAX_MESSAGE_LENGTH} characters`,
-      413,
-      'MESSAGE_TOO_LONG'
-    );
-  }
-
-  const conversationId =
-    boundedOptionalText(body, 'conversationId', MAX_IDENTIFIER_LENGTH, IDENTIFIER_PATTERN) ??
-    boundedOptionalText(body, 'sessionId', MAX_IDENTIFIER_LENGTH, IDENTIFIER_PATTERN) ??
-    `session_${crypto.randomUUID().slice(0, 12)}`;
-
-  // Accepted only for compatibility with older clients. The server owns the
-  // visitor cookie and never lets a body value replace it.
-  boundedOptionalText(body, 'visitorId', MAX_IDENTIFIER_LENGTH, IDENTIFIER_PATTERN);
-  boundedOptionalText(body, 'locale', 35, /^[A-Za-z0-9_-]+$/);
-  boundedOptionalText(body, 'origin', 16, OPTION_PATTERN);
-
-  return {
-    sourcePayload: body,
-    brainRequest: {
-      message: body.message.trim(),
-      history: readHistory(body.history),
-      styleMode: boundedOptionalText(body, 'styleMode', MAX_OPTION_LENGTH, OPTION_PATTERN),
-      responseMode: boundedOptionalText(body, 'responseMode', MAX_OPTION_LENGTH, OPTION_PATTERN),
-      timezone: boundedOptionalText(
-        body,
-        'timezone',
-        MAX_TIMEZONE_LENGTH,
-        TIMEZONE_PATTERN
-      ),
-      conversationId,
-    },
-  };
-}
-
-function validVisitorId(value: string): boolean {
-  return value.length <= MAX_IDENTIFIER_LENGTH && IDENTIFIER_PATTERN.test(value);
-}
-
-/** Returns undefined for malformed percent escapes or invalid cookie values. */
-function readVisitorCookie(request: Request): string | undefined {
-  const cookieHeader = request.headers.get('cookie');
-  if (!cookieHeader) return undefined;
-
-  for (const part of cookieHeader.split(';')) {
-    const separator = part.indexOf('=');
-    if (separator < 0 || part.slice(0, separator).trim() !== VISITOR_COOKIE) continue;
-    try {
-      const decoded = decodeURIComponent(part.slice(separator + 1).trim());
-      return validVisitorId(decoded) ? decoded : undefined;
-    } catch {
-      return undefined;
-    }
-  }
-  return undefined;
-}
-
-function withVisitorCookie(response: NextResponse, visitorId: string): NextResponse {
-  response.cookies.set(VISITOR_COOKIE, visitorId, {
-    path: '/',
-    maxAge: VISITOR_COOKIE_AGE_SECONDS,
-    sameSite: 'lax',
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-  });
-  return response;
+  return { messages: readMessages(body.messages) };
 }
 
 function errorResponse(
@@ -233,11 +122,6 @@ function forwardedHeaders(upstream: Response, rateLimit: AllowedRateLimit): Head
   return headers;
 }
 
-/**
- * The browser edge validates and bounds client input, adds a server-owned
- * pseudonymous visitor token, and otherwise passes the brain response through
- * unchanged. Answering and durable logging remain brain responsibilities.
- */
 export async function POST(request: Request): Promise<NextResponse> {
   const requestId = crypto.randomUUID();
   const rateLimit = checkChatRateLimit(request);
@@ -253,9 +137,9 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
   }
 
-  let parsed: ParsedChatRequest;
+  let chatRequest: ChatRequest;
   try {
-    parsed = await parseChatRequest(request);
+    chatRequest = await parseChatRequest(request);
   } catch (error) {
     if (error instanceof RequestValidationError) {
       return errorResponse(
@@ -277,40 +161,24 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
   }
 
-  const visitorId =
-    readVisitorCookie(request) ?? `visitor_${crypto.randomUUID().replaceAll('-', '').slice(0, 24)}`;
-
   try {
-    const upstream = await askBrain(
-      {
-        ...parsed.brainRequest,
-        visitorId,
-        questionOrigin: detectQuestionOrigin(request, parsed.sourcePayload),
-      },
-      rateLimit.clientIdentity
-    );
+    const upstream = await askBrain(chatRequest, rateLimit.clientIdentity);
     const hasBody = upstream.status !== 204 && upstream.status !== 304;
-    const response = new NextResponse(hasBody ? await upstream.arrayBuffer() : null, {
+    return new NextResponse(hasBody ? await upstream.arrayBuffer() : null, {
       status: upstream.status,
       headers: forwardedHeaders(upstream, rateLimit),
     });
-    return withVisitorCookie(response, visitorId);
   } catch (error) {
     console.error('Chat turn failed:', error);
-    const message =
+    return errorResponse(
+      requestId,
+      503,
+      'SERVICE_UNAVAILABLE',
       error instanceof BrainUnreachableError
         ? 'RockyGPT is starting up.'
-        : 'RockyGPT is unavailable.';
-    return withVisitorCookie(
-      errorResponse(
-        requestId,
-        503,
-        'SERVICE_UNAVAILABLE',
-        message,
-        true,
-        rateLimitHeaders(rateLimit)
-      ),
-      visitorId
+        : 'RockyGPT is unavailable.',
+      true,
+      rateLimitHeaders(rateLimit)
     );
   }
 }
