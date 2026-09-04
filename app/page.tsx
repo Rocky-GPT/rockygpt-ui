@@ -50,12 +50,13 @@ interface ChatMessage {
 }
 
 interface Citation {
-  sourceId?: string;
+  id?: string;
   title: string;
   url: string;
-  sourcePath?: string;
+  collection?: string;
   snippet?: string;
-  collectedAt?: string;
+  collected_at?: string;
+  freshness?: string;
 }
 
 interface UiAction {
@@ -472,8 +473,7 @@ function cleanCitations(citations?: Citation[]): Citation[] {
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
-    })
-    .slice(0, 3);
+    });
 }
 
 function cleanSuggestedQuestions(value: unknown): string[] {
@@ -520,6 +520,13 @@ async function chatFailureFromResponse(response: Response): Promise<ChatRequestF
   const requestId = payload.requestId || response.headers.get('X-Request-Id') || undefined;
   const retryDelay = retryDelayLabel(response.headers.get('Retry-After'));
 
+  if (typeof payload.error === 'object' && payload.error?.retryable === false) {
+    return new ChatRequestFailure(
+      payload.error.message?.trim() || 'RockyGPT is currently unavailable.',
+      requestId,
+      false
+    );
+  }
   if (response.status === 429 || code === 'RATE_LIMITED') {
     return new ChatRequestFailure(
       retryDelay
@@ -529,12 +536,7 @@ async function chatFailureFromResponse(response: Response): Promise<ChatRequestF
     );
   }
   if (response.status === 503 || code === 'SERVICE_UNAVAILABLE' || code === 'DATASET_UNAVAILABLE') {
-    // Say what the brain said. A 503 is no longer one thing: a lookup Rocky
-    // cannot do yet, a data service that did not answer, a planner that
-    // failed. The brain distinguishes them and words each for a student —
-    // `public_message` is that field's whole job — so overwriting it with one
-    // sentence about being "temporarily unavailable" turns a permanent gap
-    // into an outage and offers a retry that can only fail.
+    // Preserve the Brain's student-facing message and retryability.
     const said =
       typeof payload.error === 'object' && code !== 'SERVICE_UNAVAILABLE'
         ? payload.error?.message?.trim()
