@@ -47,6 +47,7 @@ interface ChatMessage {
   retryUserMessageId?: string;
   isTyping?: boolean;
   brainTrace?: BrainTrace;
+  resources?: Citation[];
 }
 
 interface Citation {
@@ -87,6 +88,8 @@ interface ChatApiResponse {
     message?: string;
     retryable?: boolean;
     retryAfterSeconds?: number;
+    resetAt?: string;
+    resources?: Citation[];
   };
 }
 
@@ -99,7 +102,8 @@ class ChatRequestFailure extends Error {
   constructor(
     message: string,
     readonly requestId?: string,
-    readonly retryable = true
+    readonly retryable = true,
+    readonly resources: Citation[] = []
   ) {
     super(message);
     this.name = 'ChatRequestFailure';
@@ -211,20 +215,24 @@ function linkSmartChips(text: string): string {
   if (!text) return '';
 
   const links: string[] = [];
+  const protectLink = (markdown: string): string => {
+    const idx = links.length;
+    links.push(markdown);
+    return `___SMARTLINK_${idx}___`;
+  };
   let protectedText = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, label, href) => {
     if (/^\(?201\)?[-.\s]?684[-.\s]?\d{4}$/.test(label.trim())) {
       const clean = label.replace(/[^\d]/g, '');
       href = 'tel:' + clean;
     }
-    const idx = links.length;
-    links.push(`[${label}](${href})`);
-    return `___SMARTLINK_${idx}___`;
+    return protectLink(`[${label}](${href})`);
   });
 
   // 1. Auto-link emails (e.g. success@ramapo.edu)
   protectedText = protectedText.replace(
     /\b([a-zA-Z0-9._%+-]+@ramapo\.edu)\b/g,
-    (_, email) => `[${email}](mailto:${email})`
+    // Later bare-domain linking must not rewrite the email label or mailto target.
+    (_, email) => protectLink(`[${email}](mailto:${email})`)
   );
 
   // 2. Auto-link unlinked Ramapo phone numbers ((201) 684-XXXX, 201-684-XXXX, 201.684.XXXX)
@@ -521,10 +529,31 @@ async function chatFailureFromResponse(response: Response): Promise<ChatRequestF
   const retryDelay = retryDelayLabel(response.headers.get('Retry-After'));
 
   if (typeof payload.error === 'object' && payload.error?.retryable === false) {
+    const reset = payload.error.resetAt ? new Date(payload.error.resetAt) : null;
+    const resetMessage =
+      reset && Number.isFinite(reset.getTime())
+        ? ` Resets ${new Intl.DateTimeFormat('en-US', {
+            dateStyle: 'medium',
+            timeStyle: 'short',
+            timeZone: 'America/New_York',
+          }).format(reset)} (New York).`
+        : '';
+    const resources = cleanCitations(payload.error.resources)
+      .filter((resource) => {
+        if (typeof resource.title !== 'string' || typeof resource.url !== 'string') return false;
+        try {
+          const url = new URL(resource.url);
+          return url.protocol === 'https:' && !url.username && !url.password;
+        } catch {
+          return false;
+        }
+      })
+      .slice(0, 8);
     return new ChatRequestFailure(
-      payload.error.message?.trim() || 'RockyGPT is currently unavailable.',
+      (payload.error.message?.trim() || 'RockyGPT is currently unavailable.') + resetMessage,
       requestId,
-      false
+      false,
+      resources
     );
   }
   if (response.status === 429 || code === 'RATE_LIMITED') {
@@ -974,6 +1003,7 @@ export default function Home() {
               content: requestFailure.message,
               requestId: requestFailure.requestId,
               isError: true,
+              resources: requestFailure.resources,
               retryContent: requestFailure.retryable ? userMessage.content : undefined,
               retryUserMessageId: userMessage.id,
             } as ChatMessage,
@@ -1301,6 +1331,22 @@ export default function Home() {
                         className="w-full rounded-2xl border border-amber-400/40 bg-amber-400/10 p-4 text-sm text-foreground"
                       >
                         <p className="font-medium leading-6">{m.content}</p>
+                        {m.resources && m.resources.length > 0 && (
+                          <ul className="mt-3 list-disc space-y-1 pl-5">
+                            {m.resources.map((resource) => (
+                              <li key={resource.url}>
+                                <a
+                                  href={resource.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="underline underline-offset-4"
+                                >
+                                  {resource.title}
+                                </a>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
                         {m.requestId && (
                           <p className="mt-2 break-all text-xs text-muted-foreground">
                             Support ID: <code>{m.requestId}</code>
