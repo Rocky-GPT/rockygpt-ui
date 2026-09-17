@@ -32,6 +32,7 @@ function localNetworkHosts(): string[] {
  */
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  agentRules: false,
   allowedDevOrigins: localNetworkHosts(),
   async headers() {
     return [
