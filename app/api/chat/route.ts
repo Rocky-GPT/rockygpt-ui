@@ -115,7 +115,7 @@ function errorResponse(
 
 function forwardedHeaders(upstream: Response, rateLimit: AllowedRateLimit): Headers {
   const headers = new Headers(rateLimitHeaders(rateLimit));
-  for (const name of ['content-type', 'retry-after', 'x-request-id']) {
+  for (const name of ['content-type', 'retry-after', 'x-request-id', 'cache-control', 'x-accel-buffering']) {
     const value = upstream.headers.get(name);
     if (value) headers.set(name, value);
   }
@@ -162,14 +162,27 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   try {
-    const upstream = await askBrain(chatRequest, rateLimit.clientIdentity);
+    const upstream = await askBrain(chatRequest, rateLimit.clientIdentity, {
+      stream: request.headers.get('accept')?.includes('text/event-stream'),
+      signal: request.signal,
+    });
     const hasBody = upstream.status !== 204 && upstream.status !== 304;
-    return new NextResponse(hasBody ? await upstream.arrayBuffer() : null, {
+    return new NextResponse(hasBody ? upstream.body : null, {
       status: upstream.status,
       headers: forwardedHeaders(upstream, rateLimit),
     });
   } catch (error) {
     console.error('Chat turn failed:', error);
+    if (error instanceof BrainUnreachableError && error.timedOut) {
+      return errorResponse(
+        requestId,
+        504,
+        'model_timeout',
+        'RockyGPT took too long to answer. Please try again.',
+        true,
+        rateLimitHeaders(rateLimit)
+      );
+    }
     return errorResponse(
       requestId,
       503,

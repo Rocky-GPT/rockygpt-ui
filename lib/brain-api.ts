@@ -17,9 +17,12 @@ export interface ClientAbuseIdentity {
 export const MAX_MESSAGE_LENGTH = 2_000;
 
 export class BrainUnreachableError extends Error {
+  readonly timedOut: boolean;
+
   constructor(cause: unknown) {
     super(`the brain service could not be reached: ${cause instanceof Error ? cause.message : cause}`);
     this.name = 'BrainUnreachableError';
+    this.timedOut = cause instanceof Error && cause.name === 'TimeoutError';
   }
 }
 
@@ -29,10 +32,14 @@ export function brainUrl(): string {
 
 export async function askBrain(
   request: ChatRequest,
-  clientIdentity?: ClientAbuseIdentity
+  clientIdentity?: ClientAbuseIdentity,
+  options?: { stream?: boolean; signal?: AbortSignal }
 ): Promise<Response> {
   try {
-    const headers = new Headers({ accept: 'application/json', 'content-type': 'application/json' });
+    const headers = new Headers({
+      accept: options?.stream ? 'text/event-stream' : 'application/json',
+      'content-type': 'application/json',
+    });
     const environmentToken = process.env.STAGING_SERVICE_TOKEN?.trim();
     if (environmentToken) headers.set('x-rockygpt-environment-token', environmentToken);
     if (clientIdentity?.signature) {
@@ -43,7 +50,7 @@ export async function askBrain(
       method: 'POST',
       headers,
       body: JSON.stringify(request),
-      signal: AbortSignal.timeout(60_000),
+      signal: AbortSignal.any([AbortSignal.timeout(60_000), ...(options?.signal ? [options.signal] : [])]),
     });
   } catch (error) {
     throw new BrainUnreachableError(error);

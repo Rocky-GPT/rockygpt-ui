@@ -64,3 +64,51 @@ test('recoverable rate limiting still offers retry', async ({ page }) => {
   await expect(alert).toContainText('reached the chat limit');
   await expect(alert.getByRole('button', { name: 'Try again', exact: true })).toBeVisible();
 });
+
+for (const scenario of [
+  { status: 504, code: 'model_timeout', retryable: true,
+    message: 'RockyGPT took too long to answer. Please try again.' },
+  { status: 504, code: 'model_timeout', retryable: false,
+    message: 'RockyGPT took too long to answer.' },
+  { status: 502, code: 'invalid_model_output', retryable: true,
+    message: 'RockyGPT couldn’t produce a reliable answer. Please try again.' },
+  { status: 502, code: 'model_provider_error', retryable: true,
+    message: 'The AI service couldn’t complete this request. Please try again.' },
+]) {
+  test(`${scenario.code} explains the failure (retryable=${scenario.retryable})`, async ({ page }) => {
+    let requests = 0;
+    await page.route('**/api/chat', (route) => {
+      requests += 1;
+      return route.fulfill({
+        status: scenario.status,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          requestId: 'clear-error-test',
+          error: { code: scenario.code, message: 'Generic upstream failure.', retryable: scenario.retryable },
+        }),
+      });
+    });
+    await page.goto('/');
+    await submitQuestion(page);
+    const alert = page.getByRole('alert').filter({ hasText: 'Support ID:' });
+    await expect(alert.getByText(scenario.message, { exact: true })).toBeVisible();
+    await expect(alert).toContainText('clear-error-test');
+    await expect(alert.getByRole('button', { name: 'Try again', exact: true }))
+      .toHaveCount(scenario.retryable ? 1 : 0);
+    expect(requests).toBe(1);
+  });
+}
+
+test('a gateway timeout without JSON still explains the timeout and keeps the support ID', async ({ page }) => {
+  await page.route('**/api/chat', (route) => route.fulfill({
+    status: 504,
+    contentType: 'text/html',
+    headers: { 'x-request-id': 'gateway-timeout-test' },
+    body: '<h1>Gateway Timeout</h1>',
+  }));
+  await page.goto('/');
+  await submitQuestion(page);
+  const alert = page.getByRole('alert').filter({ hasText: 'Support ID:' });
+  await expect(alert).toContainText('RockyGPT took too long to answer. Please try again.');
+  await expect(alert).toContainText('gateway-timeout-test');
+});

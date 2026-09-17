@@ -9,6 +9,7 @@
 
 'use client';
 
+import { readChatStream, ChatStreamError } from '@/lib/chat-stream';
 import { memo, useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Bot, Bus, Calendar, Check, ChevronRight, ChevronUp, Copy, CreditCard, Download, ExternalLink, FileText, GraduationCap, Info, MapPin, Phone, Printer, Send, Shield, Sparkles, Square, ThumbsDown, ThumbsUp, Users, Utensils, X } from 'lucide-react';
 import { MenuModal } from '@/components/MenuModal';
@@ -30,7 +31,8 @@ import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { bindGlobalTapHaptics, destroyHaptics, triggerHaptic } from '@/lib/haptics';
 import { useViewportBand } from '@/lib/visual-viewport';
-import { MAX_MESSAGE_LENGTH, type ChatMessageInput } from '@/lib/brain-api';
+import { MAX_MESSAGE_LENGTH } from '@/lib/brain-api';
+import { buildRequestMessages } from '@/lib/chat-conversation';
 
 interface ChatMessage {
   id: string;
@@ -502,18 +504,6 @@ function cleanSuggestedQuestions(value: unknown): string[] {
 }
 
 const LEGACY_VISITOR_STORAGE_KEY = 'rockygpt_visitor_id';
-function buildRequestMessages(
-  messages: ChatMessage[],
-  currentUserMessage: ChatMessage
-): ChatMessageInput[] {
-  const conversation = messages.flatMap<ChatMessageInput>((message) => {
-    if (message.isError || !message.content) return [];
-    return [{ role: message.role, content: message.content }];
-  });
-  conversation.push({ role: currentUserMessage.role, content: currentUserMessage.content });
-  return conversation;
-}
-
 function retryDelayLabel(rawValue: string | null): string | null {
   const seconds = Number(rawValue);
   if (!Number.isFinite(seconds) || seconds <= 0) return null;
@@ -527,7 +517,25 @@ async function chatFailureFromResponse(response: Response): Promise<ChatRequestF
   const code = typeof payload.error === 'object' ? payload.error?.code : undefined;
   const requestId = payload.requestId || response.headers.get('X-Request-Id') || undefined;
   const retryDelay = retryDelayLabel(response.headers.get('Retry-After'));
+  const canRetry = payload.error?.retryable !== false;
 
+  if (response.status === 504 || code === 'model_timeout') {
+    return new ChatRequestFailure(
+      'RockyGPT took too long to answer.' + (canRetry ? ' Please try again.' : ''),
+      requestId,
+      canRetry
+    );
+  }
+  if (code === 'invalid_model_output' || code === 'model_provider_error') {
+    return new ChatRequestFailure(
+      (code === 'invalid_model_output'
+        ? 'RockyGPT couldn’t produce a reliable answer.'
+        : 'The AI service couldn’t complete this request.') +
+        (canRetry ? ' Please try again.' : ''),
+      requestId,
+      canRetry
+    );
+  }
   if (typeof payload.error === 'object' && payload.error?.retryable === false) {
     const reset = payload.error.resetAt ? new Date(payload.error.resetAt) : null;
     const resetMessage =
@@ -601,6 +609,9 @@ export default function Home() {
   useViewportBand();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [progressLabel, setProgressLabel] = useState('Sending your question…');
+  const [progressContext, setProgressContext] = useState('');
+  const [draftPreview, setDraftPreview] = useState('');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [menuMealContext, setMenuMealContext] = useState('lunch');
   const [isBusModalOpen, setIsBusModalOpen] = useState(false);
@@ -884,6 +895,9 @@ export default function Home() {
       } as ChatMessage,
     ]);
     setInput('');
+    setProgressLabel('Sending your question…');
+    setProgressContext('');
+    setDraftPreview('');
     setLoading(true);
 
     const controller = new AbortController();
@@ -891,16 +905,23 @@ export default function Home() {
 
     try {
       const requestMessages = buildRequestMessages(historyMessages, userMessage);
-      const response = await fetch('/api/chat', {
+      const upstreamResponse = await fetch('/api/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Accept: 'application/json',
+          Accept: 'text/event-stream',
         },
         body: JSON.stringify({ messages: requestMessages }),
         signal: controller.signal,
       });
 
+      const response = await readChatStream(upstreamResponse, (label, detail, draft) => {
+        if (!controller.signal.aborted && activeRequestRef.current?.controller === controller) {
+          setProgressLabel(label);
+          setProgressContext(detail);
+          setDraftPreview(draft);
+        }
+      });
       if (!response.ok) {
         throw await chatFailureFromResponse(response);
       }
@@ -986,7 +1007,9 @@ export default function Home() {
           error instanceof ChatRequestFailure
             ? error
             : new ChatRequestFailure(
-                error instanceof TypeError
+                error instanceof ChatStreamError
+                  ? error.message
+                  : error instanceof TypeError
                   ? 'We couldn’t reach RockyGPT. Check your connection and try again.'
                   : 'Something went wrong while getting an answer. Please try again.'
               );
@@ -1413,11 +1436,26 @@ export default function Home() {
           {isLoading &&
             messages[messages.length - 1]?.role === 'assistant' &&
             !messages[messages.length - 1]?.content && (
-              <div className="flex items-center gap-2.5 py-1">
+              <div role="status" aria-live="polite" aria-atomic="true" className="flex min-w-0 items-start gap-2.5 py-1">
                 <Sparkles className="h-5 w-5 text-[#f4a8b5] animate-thinking-star shrink-0" />
-                <span className="text-sm font-medium tracking-wide animate-thinking-shimmer select-none">
-                  Thinking...
-                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate whitespace-nowrap text-sm font-medium tracking-wide animate-thinking-shimmer select-none">
+                    {progressLabel}
+                  </div>
+                  {progressContext && (
+                    <div className="mt-1 truncate whitespace-nowrap text-xs leading-5 text-zinc-500 dark:text-zinc-400" title={progressContext}>
+                      {progressContext}
+                    </div>
+                  )}
+                  {draftPreview && (
+                    <div className="mt-3 text-zinc-500 dark:text-zinc-400">
+                      <div className="mb-1 text-xs font-medium">Draft · not verified</div>
+                      <div className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-sm leading-6 [overflow-wrap:anywhere]">
+                        {draftPreview}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           <div ref={messagesEndRef} />
