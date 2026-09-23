@@ -501,14 +501,6 @@ export function EventsModal({ isOpen, onClose }: ModalProps) {
 // DIRECTORY MODAL - Key Phone Numbers
 // ============================================
 
-const getInitials = (name: string): string =>
-  name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? '')
-    .join('') || '?';
-
 /** Directory discovery selects a canonical entity before reading its facts. */
 export function DirectoryModal({ isOpen, onClose }: ModalProps) {
   const dialogRef = useAccessibleDialog(isOpen, onClose);
@@ -1622,24 +1614,7 @@ interface MajorEntry {
   programKind?: 'major' | 'minor' | 'certificate' | 'undeclared' | 'other' | 'special';
   status?: string;
   school?: string;
-  faculty?: Array<{
-    name: string;
-    title?: string;
-    email?: string;
-    office?: string;
-    phone?: string;
-    profileUrl?: string;
-    imageUrl?: string;
-  }>;
-  convener?: {
-    name: string;
-    title?: string;
-    email?: string;
-    office?: string;
-    phone?: string;
-    profileUrl?: string;
-    imageUrl?: string;
-  };
+  // Embedded legacy faculty/contact snapshots are deliberately not a person-facts API.
 }
 
 interface SchoolGroup {
@@ -2063,19 +2038,13 @@ function getProgramBackgroundImage(name: string, school: string): string {
   return '/images/programs/humanities.png'; 
 }
 
-function normalizePersonKey(name?: string): string {
-  return (name || '')
-    .toLowerCase()
-    .replace(/[\u2019']/g, '')
-    .replace(/[^a-z0-9]/g, '');
-}
-
 /**
  * Modal for exploring majors, programs, and catalog requirements.
  */
 export function MajorsModal({ isOpen, onClose }: ModalProps) {
   const dialogRef = useAccessibleDialog(isOpen, onClose);
   const [programs, setPrograms] = React.useState<ProgramsData | null>(null);
+  const [programError, setProgramError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [levelFilter, setLevelFilter] = React.useState<'undergraduate' | 'graduate'>('undergraduate');
   const [programKindFilter, setProgramKindFilter] = React.useState<ProgramKindFilter>('major');
@@ -2106,12 +2075,14 @@ export function MajorsModal({ isOpen, onClose }: ModalProps) {
       return;
     }
     setLoading(true);
+    setProgramError(null);
     // The shape check is the whole point here: a 503 answers with `{ error }`,
     // which satisfied every `if (programs)` guard below and then had no
     // `schools` to read. `programs` stays null unless it is drawable.
     void loadCampusData('/api/data/programs', objectWithArray('schools')).then(result => {
       if (!result.ok) {
         console.error('Failed to load programs:', result.message);
+        setProgramError('Program data is unavailable in this view. Use the official catalog below.');
         setLoading(false);
         return;
       }
@@ -2193,11 +2164,6 @@ export function MajorsModal({ isOpen, onClose }: ModalProps) {
       })
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [programs, levelFilter, programKindFilter]);
-
-  const openExternalUrl = (url?: string) => {
-    if (!url) return;
-    window.open(url, '_blank', 'noopener,noreferrer');
-  };
 
   if (!isOpen) return null;
 
@@ -2386,109 +2352,11 @@ export function MajorsModal({ isOpen, onClose }: ModalProps) {
             )}
 
             {activeTab === 'faculty' && (
-              <>
-                {(() => {
-                  const convener = selectedMajor.convener;
-                  const convenerKey = normalizePersonKey(convener?.name);
-                  const facultyWithoutConvener = (selectedMajor.faculty || []).filter(
-                    (faculty) => normalizePersonKey(faculty.name) !== convenerKey
-                  );
-                  const hasFacultyData = Boolean(convener) || facultyWithoutConvener.length > 0;
-                  const renderFacultyCard = (
-                    person: {
-                      name: string;
-                      title?: string;
-                      email?: string;
-                      imageUrl?: string;
-                      profileUrl?: string;
-                    },
-                    key?: string
-                  ) => {
-                    const rowUrl = person.profileUrl || selectedMajor.url;
-                    return (
-                      <div
-                        key={key ?? person.name}
-                        className={`rounded-lg border border-border/50 bg-background/70 px-3 py-2.5 ${rowUrl ? 'cursor-pointer hover:bg-background transition-colors' : ''}`}
-                        role={rowUrl ? 'button' : undefined}
-                        tabIndex={rowUrl ? 0 : undefined}
-                        onClick={() => openExternalUrl(rowUrl)}
-                        onKeyDown={(event) => {
-                          if (!rowUrl) return;
-                          if (event.key === 'Enter' || event.key === ' ') {
-                            event.preventDefault();
-                            openExternalUrl(rowUrl);
-                          }
-                        }}
-                      >
-                        <div className="flex items-start gap-3">
-                          {person.imageUrl ? (
-                            <div
-                              className="h-10 w-10 shrink-0 rounded-lg border border-border/60 bg-muted bg-cover bg-center"
-                              style={{ backgroundImage: `url("${person.imageUrl.replace(/"/g, '%22')}")` }}
-                              aria-hidden
-                            />
-                          ) : (
-                            <div className="h-10 w-10 shrink-0 rounded-lg border border-border/60 bg-muted text-foreground/80 text-xs font-bold flex items-center justify-center">
-                              {getInitials(person.name)}
-                            </div>
-                          )}
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm font-semibold text-foreground leading-tight truncate">
-                              {person.name}
-                            </p>
-                            {person.title && (
-                              <p className="text-xs text-muted-foreground mt-1 truncate">{person.title}</p>
-                            )}
-                          </div>
-                          {person.email && (
-                            <a
-                              href={`mailto:${person.email}`}
-                              className="inline-flex items-center justify-center w-8 h-8 rounded-md border border-border/60 bg-muted/40 hover:bg-muted text-foreground shrink-0"
-                              aria-label={`Email ${person.name}`}
-                              onClick={(event) => event.stopPropagation()}
-                            >
-                              <Mail className="w-3.5 h-3.5" />
-                            </a>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  };
-
-                  return hasFacultyData ? (
-                  <div className="space-y-4">
-                    {convener && (
-                      <div className={facultyWithoutConvener.length > 0 ? 'space-y-3' : ''}>
-                        <div className="flex items-center gap-2">
-                          <Users className="w-4 h-4 text-muted-foreground" />
-                          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Convener</span>
-                        </div>
-                        {renderFacultyCard(convener)}
-                      </div>
-                    )}
-                    {facultyWithoutConvener.length > 0 && (
-                      <div className="space-y-3">
-                        <div className="flex items-center gap-2">
-                          <Users className="w-4 h-4 text-muted-foreground" />
-                          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Program Faculty</span>
-                        </div>
-                        <div className="space-y-2.5">
-                          {facultyWithoutConvener.map((faculty, index) =>
-                            renderFacultyCard(faculty, `${faculty.email || faculty.name}-${index}`)
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="rounded-xl bg-muted/20 border border-border/50 p-6 text-center shadow-sm">
-                    <Users className="w-8 h-8 text-muted-foreground/30 mx-auto mb-3" />
-                    <p className="text-sm font-semibold text-foreground">No faculty data available</p>
-                    <p className="text-xs text-muted-foreground mt-1 text-balance">Visit the official program page for faculty and convener details.</p>
-                  </div>
-                );
-                })()}
-              </>
+              <div className="rounded-xl bg-muted/20 border border-border/50 p-6 text-center shadow-sm">
+                <Users className="w-8 h-8 text-muted-foreground/30 mx-auto mb-3" />
+                <p className="text-sm font-semibold text-foreground">Faculty contact details are unavailable in this program view.</p>
+                <p className="text-xs text-muted-foreground mt-2 text-balance">Find a person in the Directory for published contact details, or use the official program page below for faculty and convener information.</p>
+              </div>
             )}
 
             {activeTab === 'careers' && (
@@ -2620,7 +2488,8 @@ export function MajorsModal({ isOpen, onClose }: ModalProps) {
               <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
             </div>
           )}
-          {!loading && filteredMajors.length === 0 && (
+          {!loading && programError && <p role="alert" className="text-sm text-muted-foreground p-4">{programError}</p>}
+          {!loading && !programError && filteredMajors.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full text-center py-12 px-6">
               <GraduationCap className="w-12 h-12 text-muted-foreground/30 mb-4" />
               <p className="text-sm font-semibold text-foreground">No programs found</p>

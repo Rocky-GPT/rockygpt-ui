@@ -69,3 +69,33 @@ test('directory keeps source disagreements visible and rejects stale snapshots',
   await expect(modal.getByRole('alert')).toContainText('Campus data changed');
   await expect(modal.getByRole('link', { name: 'first@example.edu' })).toHaveCount(0);
 });
+
+test('legacy program snapshots cannot introduce a second person contact path', async ({ page }) => {
+  await page.route('**/api/data/programs', route => route.fulfill({ json: {
+    generatedAt: '2026-09-23', totalSchools: 1, totalMajors: 1,
+    schools: [{ school: 'Example School', shortName: 'EX', majors: [{
+      name: 'Example Program', degree: 'BA', type: 'undergraduate', programKind: 'major',
+      url: 'https://www.ramapo.edu/majors-minors/',
+      convener: { name: 'Snapshot Convener', email: 'stale-convener@example.edu' },
+      faculty: [{ name: 'Snapshot Faculty', email: 'stale-faculty@example.edu' }],
+    }] }],
+  } }));
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Majors', exact: true }).click();
+  const modal = page.getByRole('dialog', { name: 'Majors and programs' });
+  await modal.getByRole('button', { name: 'Example Program', exact: true }).click();
+  await modal.getByRole('button', { name: 'Faculty', exact: true }).click();
+  await expect(modal.getByText('Faculty contact details are unavailable in this program view.')).toBeVisible();
+  await expect(modal.locator('a[href^="mailto:"]')).toHaveCount(0);
+  await expect(modal.getByText('Snapshot Convener')).toHaveCount(0);
+  await expect(modal.getByRole('link', { name: 'Show Program Page' })).toHaveAttribute('href', 'https://www.ramapo.edu/majors-minors/');
+});
+
+test('an unavailable program API is not presented as an empty catalog', async ({ page }) => {
+  await page.route('**/api/data/programs', route => route.fulfill({ status: 404, json: { detail: 'Not Found' } }));
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Majors', exact: true }).click();
+  const modal = page.getByRole('dialog', { name: 'Majors and programs' });
+  await expect(modal.getByRole('alert')).toContainText('Program data is unavailable');
+  await expect(modal.getByText('No programs found')).toHaveCount(0);
+});
