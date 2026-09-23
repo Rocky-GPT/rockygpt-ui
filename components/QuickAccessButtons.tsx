@@ -18,10 +18,8 @@ import { Virtuoso } from 'react-virtuoso';
 import { parseSemesterEventDate } from '@/lib/calendar-dates';
 import { anyArray, anyObject, loadCampusData, objectWithArray } from '@/lib/campus-data';
 import { MODAL_OVERLAY, MODAL_PANEL, MODAL_PANEL_SHORT } from '@/components/modalShell';
-import type {
-  FacultyStaffContact,
-  NormalizedDirectoryContact,
-} from '@/lib/data-types';
+import { DirectoryEntityCard } from '@/components/DirectoryEntityCard';
+import { isDirectoryIndex, type DirectoryIndex } from '@/lib/entity-facts';
 
 interface ModalProps {
   isOpen: boolean;
@@ -503,7 +501,6 @@ export function EventsModal({ isOpen, onClose }: ModalProps) {
 // DIRECTORY MODAL - Key Phone Numbers
 // ============================================
 
-const toTelHref = (phone: string): string => phone.replace(/[^0-9+]/g, '');
 const getInitials = (name: string): string =>
   name
     .split(/\s+/)
@@ -512,355 +509,66 @@ const getInitials = (name: string): string =>
     .map((part) => part[0]?.toUpperCase() ?? '')
     .join('') || '?';
 
-const uniqueNonEmpty = (values: string[]): string[] => {
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const value of values) {
-    const trimmed = value.trim();
-    if (!trimmed) continue;
-    const key = trimmed.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push(trimmed);
-  }
-  return result;
-};
-
-const inferFacultyHelpTags = (person: FacultyStaffContact): string[] => {
-  const title = (person.title ?? '').toLowerCase();
-  const school = (person.school ?? '').toLowerCase();
-  const text = `${title} ${school}`;
-  const tags: string[] = [];
-
-  if (/library|librarian/.test(text)) {
-    tags.push('Research help', 'Citation support');
-  }
-  if (/dean|director|chair|coordinator/.test(title)) {
-    tags.push('Department guidance', 'Program oversight');
-  }
-  if (/advisor|advis/.test(title)) {
-    tags.push('Academic advising');
-  }
-  if (/nursing|health/.test(text)) {
-    tags.push('Health pathways');
-  }
-  if (/anisfield|business|finance|accounting|marketing|management|economics/.test(text)) {
-    tags.push('Business coursework');
-  }
-  if (/theoretical and applied science|science|computer|physics|chemistry|biology|math|engineering/.test(text)) {
-    tags.push('STEM coursework');
-  }
-  if (/social science|human services|psychology|social work|law and society|sociology/.test(text)) {
-    tags.push('Social science guidance');
-  }
-  if (/contemporary arts|art|music|theatre|dance/.test(text)) {
-    tags.push('Arts programs');
-  }
-  if (/humanities|global studies|history|literature|languages|philosophy/.test(text)) {
-    tags.push('Humanities pathways');
-  }
-
-  const unique = uniqueNonEmpty(tags);
-  if (unique.length > 0) return unique.slice(0, 3);
-
-  if (/retired|emeritus/.test(text)) {
-    return ['Department history', 'Program context'];
-  }
-
-  return ['Academic guidance', 'Course planning'];
-};
-
-/**
- * Modal for searching campus offices, faculty, staff, and other contacts.
- */
+/** Directory discovery selects a canonical entity before reading its facts. */
 export function DirectoryModal({ isOpen, onClose }: ModalProps) {
   const dialogRef = useAccessibleDialog(isOpen, onClose);
-  const [allContacts, setAllContacts] = useState<NormalizedDirectoryContact[]>([]);
+  const [directory, setDirectory] = useState<DirectoryIndex | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [loadingDirectory, setLoadingDirectory] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'People' | 'Offices'>('People');
 
   useEffect(() => {
     if (!isOpen) return;
-
+    const abort = new AbortController();
     setLoadingDirectory(true);
-    void loadCampusData('/api/directory', objectWithArray('allContacts')).then(result => {
-      if (!result.ok) console.error('Error loading directory contacts:', result.message);
-      setAllContacts(
-        result.ok ? (result.data.allContacts as NormalizedDirectoryContact[]) : []
-      );
+    setDirectory(null);
+    setError(null);
+    void loadCampusData('/api/directory', isDirectoryIndex, { signal: abort.signal }).then(result => {
+      if (abort.signal.aborted) return;
+      if (result.ok) setDirectory(result.data);
+      else setError('The campus directory is unavailable. Close and reopen it to retry.');
       setLoadingDirectory(false);
-    });
+    }).catch(error => { if (!abort.signal.aborted) { setError(String(error)); setLoadingDirectory(false); } });
+    return () => abort.abort();
   }, [isOpen]);
 
   useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = 'unset';
-    }
+    if (isOpen) document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = 'unset'; };
   }, [isOpen]);
-
   if (!isOpen) return null;
-
-  const normalizedQuery = searchQuery.trim().toLowerCase();
-  const filteredContacts = normalizedQuery
-    ? allContacts.filter((entry) => {
-        if (entry.searchText.includes(normalizedQuery)) return true;
-        if (entry.bucket === 'Offices') return false;
-        const helpTags = inferFacultyHelpTags({
-          name: entry.name,
-          title: entry.title,
-          school: entry.school,
-          email: entry.email,
-          phone: entry.phone,
-          office: entry.office,
-          profileUrl: entry.profileUrl,
-          imageUrl: entry.imageUrl,
-        }).join(' ');
-        return helpTags.toLowerCase().includes(normalizedQuery);
-      })
-    : allContacts;
-
-  const filteredOfficeContacts = filteredContacts.filter((entry) => entry.bucket === 'Offices');
-  const filteredPeopleContacts = filteredContacts
-    .filter((entry) => entry.bucket === 'Staff & Faculty' || entry.bucket === 'Others' || entry.kind === 'person')
-    .sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }));
-
-  const categories = [
-    ...new Set(filteredOfficeContacts.map((entry) => entry.category).filter((value): value is string => Boolean(value))),
-  ];
-
-  return (
-    <div className={MODAL_OVERLAY}>
-      <div className="absolute inset-0" onClick={onClose} />
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Campus directory"
-        tabIndex={-1}
-        className={MODAL_PANEL}>
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-background">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-primary/10 rounded-xl shrink-0">
-              <Phone className="w-5 h-5 text-primary" />
-            </div>
-            <div>
-              <h2 className="text-xl font-bold leading-none mb-1">Directory</h2>
-              <p className="text-xs text-muted-foreground font-medium">
-                {loadingDirectory && allContacts.length === 0
-                  ? 'Loading contacts...'
-                  : `${allContacts.length.toLocaleString()} campus contacts`}
-              </p>
-            </div>
-          </div>
-          <button onClick={onClose} className="p-2 hover:bg-muted rounded-full transition-colors opacity-70 hover:opacity-100" aria-label="Close">
-            <X className="w-5 h-5" />
-          </button>
+  const query = searchQuery.trim().toLowerCase();
+  const contacts = directory?.allContacts.filter(entry =>
+    (activeTab === 'Offices' ? entry.bucket === 'Offices' : entry.kind === 'person')
+    && (!query || entry.searchText.includes(query))) ?? [];
+  return <div className={MODAL_OVERLAY}>
+    <div className="absolute inset-0" onClick={onClose} />
+    <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Campus directory" tabIndex={-1} className={MODAL_PANEL}>
+      <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-background">
+        <div><h2 className="text-xl font-bold">Directory</h2>
+          <p className="text-xs text-muted-foreground">{loadingDirectory ? 'Loading contacts…' : `${directory?.allContacts.length ?? 0} campus contacts`}</p></div>
+        <button onClick={onClose} className="p-2 hover:bg-muted rounded-full" aria-label="Close"><X className="w-5 h-5" /></button>
+      </div>
+      <div className="px-6 py-3 border-b border-border bg-muted/30">
+        <input type="text" aria-label="Search campus directory" placeholder="Search a person or office name"
+          value={searchQuery} onChange={event => setSearchQuery(event.target.value)}
+          className="w-full mb-3 px-4 py-2.5 bg-background border border-border rounded-lg text-base focus:outline-none focus:ring-2 focus:ring-primary/50" />
+        <div className="grid grid-cols-2 gap-1 p-1 bg-muted/60 rounded-xl border border-border/50">
+          {(['People', 'Offices'] as const).map(tab => <button key={tab} onClick={() => setActiveTab(tab)}
+            aria-pressed={activeTab === tab}
+            className={`py-1.5 text-xs font-semibold rounded-lg ${activeTab === tab ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted/50'}`}>{tab}</button>)}
         </div>
-
-        <div className="px-6 py-3 border-b border-border bg-muted/30">
-          <input
-            type="text"
-            aria-label="Search campus directory"
-            placeholder="Search name, office, email or phone"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full mb-3 px-4 py-2.5 bg-background border border-border rounded-lg text-base focus:outline-none focus:ring-2 focus:ring-primary/50"
-          />
-          <div className="grid grid-cols-2 gap-1 p-1 bg-muted/60 rounded-xl border border-border/50">
-            {(['People', 'Offices'] as const).map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`py-1.5 text-xs font-semibold rounded-lg text-center transition-all ${
-                  activeTab === tab
-                    ? 'bg-primary text-primary-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
-                }`}
-              >
-                {tab}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto scrollbar-none p-4 space-y-4">
-          {loadingDirectory && allContacts.length === 0 ? (
-            <div className="flex items-center justify-center h-full py-12">
-              <Loader2 className="w-6 h-6 animate-spin text-primary" />
-            </div>
-          ) : activeTab === 'People' ? (
-            filteredPeopleContacts.length === 0 ? (
-              <div className="text-center py-12 px-4">
-                <p className="text-muted-foreground mb-2">No people found</p>
-                <button
-                  onClick={() => setSearchQuery('')}
-                  className="text-sm text-primary hover:underline"
-                >
-                  Clear search
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-2.5">
-                {filteredPeopleContacts.map((person) => {
-                  const key = person.id;
-                  const cardContent = (
-                    <div className="flex items-stretch min-h-[76px] sm:min-h-[80px]">
-                      {/* Full-Height Left Attached Picture */}
-                      {person.imageUrl ? (
-                        <div
-                          className="w-20 shrink-0 bg-cover bg-center border-r border-border/60 self-stretch"
-                          style={{ backgroundImage: `url("${person.imageUrl.replace(/"/g, '%22')}")` }}
-                          aria-hidden
-                        />
-                      ) : (
-                        <div className="w-20 shrink-0 bg-muted/80 border-r border-border/60 text-foreground/80 text-xs font-bold flex items-center justify-center self-stretch">
-                          {getInitials(person.name)}
-                        </div>
-                      )}
-
-                      {/* Right Content Area */}
-                      <div className="flex-1 min-w-0 p-3 sm:p-3.5 flex flex-col justify-center">
-                        <div className="min-w-0">
-                          <div className="flex items-baseline justify-between gap-2">
-                            <p className="text-sm font-semibold text-foreground leading-tight truncate">{person.name}</p>
-                            {person.office && (
-                              <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground font-medium shrink-0">
-                                <MapPin className="w-3 h-3 shrink-0 text-[#f4a8b5]" />
-                                <span>{person.office}</span>
-                              </span>
-                            )}
-                          </div>
-                          {person.title && <p className="text-xs text-muted-foreground mt-1 truncate leading-tight">{person.title}</p>}
-                          {person.unit && <p className="text-xs text-muted-foreground mt-0.5 truncate leading-tight">{person.unit}</p>}
-                        </div>
-
-                        {(person.email || person.phone || person.profileUrl) && (
-                          <div className="mt-2.5 flex items-center gap-1.5">
-                            {person.email && (
-                              <a
-                                href={`mailto:${person.email}`}
-                                className="inline-flex items-center justify-center gap-1 p-1.5 sm:px-2.5 sm:py-1 rounded-md border border-border bg-muted/60 hover:bg-muted text-foreground text-xs font-semibold transition-colors"
-                                aria-label={`Email ${person.name} at ${person.email}`}
-                                title={person.email}
-                              >
-                                <Mail className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
-                                <span className="hidden sm:inline">Email</span>
-                              </a>
-                            )}
-                            {person.phone && (
-                              <a
-                                href={`tel:${toTelHref(person.phone)}`}
-                                className="inline-flex items-center justify-center gap-1 p-1.5 sm:px-2.5 sm:py-1 rounded-md border border-border bg-muted/60 hover:bg-muted text-foreground text-xs font-semibold transition-colors whitespace-nowrap"
-                                aria-label={`Call ${person.name}`}
-                                title={person.phone}
-                              >
-                                <Phone className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
-                                <span className="hidden sm:inline">Call</span>
-                              </a>
-                            )}
-                            {person.profileUrl && (
-                              <a
-                                href={person.profileUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center justify-center gap-1 p-1.5 sm:px-2.5 sm:py-1 rounded-md border border-border bg-muted/60 hover:bg-muted text-foreground text-xs font-semibold transition-colors"
-                                aria-label={`Open website for ${person.name}`}
-                                title="Open profile website"
-                              >
-                                <Globe className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
-                                <span className="hidden sm:inline">Web</span>
-                              </a>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-
-                  return (
-                    <div key={key} className="rounded-xl border border-border/70 bg-card/40 overflow-hidden transition-colors hover:bg-card/70">
-                      {cardContent}
-                    </div>
-                  );
-                })}
-              </div>
-            )
-          ) : categories.length === 0 ? (
-            <div className="text-center py-12 px-4">
-              <p className="text-muted-foreground mb-2">No office contacts found</p>
-              <button
-                onClick={() => setSearchQuery('')}
-                className="text-sm text-primary hover:underline"
-              >
-                Clear search
-              </button>
-            </div>
-          ) : (
-            categories.map((cat) => (
-              <div key={cat}>
-                <h3 className="text-xs font-bold uppercase text-muted-foreground mb-2 px-2">{cat}</h3>
-                <div className="space-y-2.5">
-                  {filteredOfficeContacts
-                    .filter((entry) => entry.category === cat)
-                    .map((item) => (
-                      <div
-                        key={item.id}
-                        className="rounded-xl border border-border/70 bg-card/40 px-3.5 py-3 transition-colors hover:bg-card/70"
-                      >
-                        <div className="min-w-0">
-                          <div className="flex items-baseline justify-between gap-2">
-                            <p className="text-sm font-semibold text-foreground leading-tight truncate">{item.name}</p>
-                            {item.office && (
-                              <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground font-medium shrink-0">
-                                <MapPin className="w-3 h-3 shrink-0 text-[#f4a8b5]" />
-                                <span>{item.office}</span>
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        {(item.email || item.phone) && (
-                          <div className="mt-2.5 flex items-center gap-1.5">
-                            {item.email && (
-                              <a
-                                href={`mailto:${item.email}`}
-                                className="inline-flex items-center justify-center gap-1 p-1.5 sm:px-2.5 sm:py-1 rounded-md border border-border bg-muted/60 hover:bg-muted text-foreground text-xs font-semibold transition-colors"
-                                aria-label={`Email ${item.name} at ${item.email}`}
-                                title={item.email}
-                              >
-                                <Mail className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
-                                <span className="hidden sm:inline">Email</span>
-                              </a>
-                            )}
-                            {item.phone && (
-                              <a
-                                href={`tel:${toTelHref(item.phone)}`}
-                                className="inline-flex items-center justify-center gap-1 p-1.5 sm:px-2.5 sm:py-1 rounded-md border border-border bg-muted/60 hover:bg-muted text-foreground text-xs font-semibold transition-colors whitespace-nowrap"
-                                aria-label={`Call ${item.name}`}
-                                title={item.phone}
-                              >
-                                <Phone className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
-                                <span className="hidden sm:inline">Call</span>
-                              </a>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-
+      </div>
+      <div className="flex-1 overflow-y-auto p-4 space-y-2.5">
+        {error ? <p role="alert" className="text-sm text-muted-foreground">{error}</p>
+          : loadingDirectory ? <p role="status" className="text-sm text-muted-foreground">Loading campus contacts…</p>
+          : contacts.length === 0 ? <p className="text-sm text-muted-foreground">No matching contacts found.</p>
+          : directory && contacts.map(entry => <DirectoryEntityCard key={`${directory.dataset_version}:${entry.id}`}
+            entry={entry} datasetVersion={directory.dataset_version} identityHash={directory.identity_hash} />)}
       </div>
     </div>
-  );
+  </div>;
 }
 
 // ============================================
