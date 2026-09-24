@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Sparkles } from 'lucide-react';
 
 interface PageLoadingScreenProps {
-  /** Explicit display duration in ms (if omitted, dynamically 2700ms for first-time welcome and 750ms for returning users) */
+  /** Explicit display duration in ms (if omitted, 900ms for a first visit and 750ms after that) */
   minDuration?: number;
   /** Triggered right when the splash screen begins its dissolve transition */
   onFadeStart?: () => void;
@@ -51,15 +51,17 @@ export function PageLoadingScreen({
       return;
     }
 
-    // First-time welcome visit = 2700ms (~3.0s total with dissolve)
-    // Subsequent visits = 750ms (~1.0s total fast splash)
+    // A first visit already gets the welcome tour right after this, so the
+    // splash is a brand moment, not a wait: it held new students for 2.7s of
+    // scripted progress before they could do anything.
+    // First visit = 900ms, later visits = 750ms (plus a 300ms dissolve).
     let effectiveDuration = minDuration;
     let isFirst = false;
     if (effectiveDuration === undefined) {
       try {
         const seen = typeof window !== 'undefined' && window.localStorage.getItem('rockygpt_welcome_seen');
         isFirst = !seen;
-        effectiveDuration = isFirst ? 2700 : 750;
+        effectiveDuration = isFirst ? 900 : 750;
       } catch {
         effectiveDuration = 750;
       }
