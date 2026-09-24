@@ -28,10 +28,10 @@ async function fulfillSuccessfulChat(route: Route) {
 async function mockChatApi(page: Page) {
   await page.route('**/api/chat', async (route) => {
     const request = route.request();
-    const body = request.postDataJSON() as { message?: string };
+    const body = request.postDataJSON() as { messages?: { role: string; content: string }[] };
 
     expect(request.method()).toBe('POST');
-    expect(body.message).toBe(CHAT_QUESTION);
+    expect(body.messages?.at(-1)).toEqual({ role: 'user', content: CHAT_QUESTION });
 
     await fulfillSuccessfulChat(route);
   });
