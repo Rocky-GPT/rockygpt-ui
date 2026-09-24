@@ -157,14 +157,17 @@ test('primary chat flow works entirely by keyboard and passes Axe', async ({ pag
 
   await expect(page.getByText(CHAT_QUESTION, { exact: true })).toBeVisible();
   await expect(page.getByText(CHAT_ANSWER, { exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: FOLLOW_UP_QUESTION })).toBeVisible();
+  // Follow-ups sit in the conversation under the answer they follow, so they
+  // cover nothing and stay put while a student types their own question.
+  const followUp = page
+    .getByRole('main')
+    .getByRole('group', { name: 'Suggested follow-up questions' })
+    .getByRole('button', { name: FOLLOW_UP_QUESTION });
+  await expect(followUp).toBeVisible();
   await expectNoHighImpactAxeFindings(page, 'answered-chat');
 
   await chatInput.fill('I have another question');
-  await expect(page.getByRole('button', { name: FOLLOW_UP_QUESTION })).toBeHidden();
-
-  await chatInput.fill('');
-  await expect(page.getByRole('button', { name: FOLLOW_UP_QUESTION })).toBeVisible();
+  await expect(followUp).toBeVisible();
 });
 
 test('action menu and modal support Escape, focus trapping, and focus restoration', async ({
@@ -252,7 +255,7 @@ for (const failure of [
     said: 'Internal upstream detail',
     expectedCopy: /reached the chat limit/i,
     unexpectedCopy: 'Internal upstream detail',
-    retryAfter: '120',
+    retryAfter: '2',
   },
   {
     name: 'temporary outage',
@@ -308,7 +311,14 @@ for (const failure of [
     await expect(alert).toContainText(`Support ID: ${failure.supportId}`);
     await expect(alert).not.toContainText(failure.unexpectedCopy);
 
-    await alert.getByRole('button', { name: 'Try again' }).click();
+    const retry = alert.getByRole('button', { name: /Try again/ });
+    if (failure.retryAfter) {
+      // A retry inside the limit would only be refused again, so the button
+      // waits out Retry-After before it can be used.
+      await expect(retry).toBeDisabled();
+      await expect(retry).toBeEnabled({ timeout: 5_000 });
+    }
+    await retry.click();
     await expect(page.getByText(CHAT_ANSWER, { exact: true })).toBeVisible();
     await expect(alert).toBeHidden();
     expect(attempts).toBe(2);
