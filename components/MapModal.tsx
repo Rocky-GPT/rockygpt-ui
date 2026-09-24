@@ -261,6 +261,10 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
   const [currentLocationUrl, setCurrentLocationUrl] = useState<string | null>(null);
   const [transitionMapUrl, setTransitionMapUrl] = useState<string | null>(null);
   const [locationStatus, setLocationStatus] = useState<LocationStatus>({ state: 'idle', message: '' });
+  // The map itself is Ramapo's embed and needs nothing from us. The place list
+  // only adds search and pins, so its failure narrows the modal instead of
+  // hiding it: a modal that rendered nothing still locked the page's scroll.
+  const [placesState, setPlacesState] = useState<'loading' | 'ready' | 'unavailable'>('loading');
 
   const locationByKey = useMemo(
     () => new Map(locations.map((location) => [location.key, location])),
@@ -299,13 +303,16 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
         if (!result.ok) {
           console.error('Unable to load campus map:', result.message);
           setLocations([]);
+          setPlacesState('unavailable');
           return;
         }
         setLocations(result.data.locations as MapLocation[]);
+        setPlacesState('ready');
       })
       .catch((error) => {
         if (error instanceof Error && error.name !== 'AbortError') {
           console.error('Unable to load campus map:', error);
+          setPlacesState('unavailable');
         }
       });
     return () => controller.abort();
@@ -420,9 +427,13 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
   }, [filteredLocations]);
 
   const selectedLocation = locationByKey.get(selectedKey) ?? locationByKey.get(CAMPUS_MAP_KEY);
-  if (!isOpen || !selectedLocation) return null;
-  const cleanEmbedUrl = cleanMapEmbedUrl(selectedLocation.mapUrl);
+  if (!isOpen) return null;
+  // With no place list yet (or none at all) this is the campus overview, which
+  // is exactly what the campus layer itself would have shown.
+  const cleanEmbedUrl = cleanMapEmbedUrl(selectedLocation?.mapUrl ?? '');
   const mapEmbedUrl = currentLocationUrl ?? transitionMapUrl ?? cleanEmbedUrl;
+  const requestedPlaceMissing =
+    placesState === 'unavailable' && Boolean(initialLocationKey) && !selectedSummaryKey;
 
   const showCurrentLocation = () => {
     if (!navigator.geolocation) {
@@ -520,6 +531,14 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
             }`}
           >
             <div className="relative h-full w-full min-w-0 overflow-hidden bg-background">
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Close map"
+                className="absolute right-2 top-2 z-20 inline-flex h-11 w-11 items-center justify-center rounded-full border border-border/70 bg-background/90 text-foreground shadow-md backdrop-blur-sm transition-colors hover:bg-background focus:outline-none focus:ring-2 focus:ring-primary/50"
+              >
+                <X aria-hidden="true" className="h-5 w-5" />
+              </button>
               <div className="absolute bottom-2 left-2 z-20 flex max-w-[calc(100%-1rem)] flex-col items-start gap-2">
                 {locationStatus.message && (
                   <p
@@ -555,7 +574,7 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
                 title={
                   currentLocationUrl
                     ? 'Ramapo map showing your current location'
-                    : `Ramapo map preview for ${selectedLocation.name}`
+                    : `Ramapo map preview for ${selectedLocation?.name ?? 'the campus'}`
                 }
                 src={mapEmbedUrl}
                 // No geolocation delegation, ever. This page asks for location
@@ -667,7 +686,14 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
                     }}
                     onFocus={() => setIsDirectoryOpen(true)}
                     onChange={(event) => setSearch(event.target.value)}
-                    placeholder={selectedSummaryLocation?.name ?? 'Search the campus map'}
+                    disabled={placesState !== 'ready'}
+                    placeholder={
+                      placesState === 'loading'
+                        ? 'Loading campus places…'
+                        : placesState === 'unavailable'
+                          ? 'Place search is unavailable'
+                          : selectedSummaryLocation?.name ?? 'Search the campus map'
+                    }
                     className="w-full min-w-0 bg-muted/60 border border-border rounded-xl pl-9 pr-10 py-2.5 text-base md:text-sm outline-none focus:ring-2 focus:ring-primary/30"
                   />
                   {search && (
@@ -689,6 +715,19 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
                   <p role="status" className="mt-2 text-xs text-muted-foreground">
                     <span className="text-foreground">{selectedSummaryLocation?.name}</span> is not
                     marked on Ramapo&rsquo;s map, so the campus view is shown instead.
+                  </p>
+                )}
+                {placesState === 'unavailable' && (
+                  <p role="status" className="mt-2 text-xs text-muted-foreground">
+                    {requestedPlaceMissing ? (
+                      <>
+                        Couldn&rsquo;t look up{' '}
+                        <span className="text-foreground">{initialLocationKey}</span> right now, so
+                        the whole campus is shown. You can still move around the map.
+                      </>
+                    ) : (
+                      'Place search isn’t available right now. You can still move around the map.'
+                    )}
                   </p>
                 )}
               </div>
