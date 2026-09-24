@@ -1,7 +1,18 @@
 import { createHmac, randomBytes } from 'node:crypto';
 
 const WINDOW_MS = 60_000;
+/**
+ * Twelve questions a minute per browser tab, and at most 120 a minute from
+ * one network address. The limit used to be 12 per address alone, and a
+ * campus network puts a whole dorm behind a handful of addresses, so every
+ * student on it shared the same twelve. The address ceiling still stops one
+ * machine from flooding the model by inventing tab values.
+ */
 const REQUEST_LIMIT = 12;
+const NETWORK_LIMIT = 120;
+/** A random per-tab value from the page; see `chatClientToken` in app/page.tsx. */
+const CLIENT_HEADER = 'x-rockygpt-client';
+const CLIENT_TOKEN = /^[A-Za-z0-9_-]{16,64}$/;
 const MAX_BUCKETS = 10_000;
 const PRUNE_INTERVAL = 128;
 const MINIMUM_SECRET_LENGTH = 32;
@@ -83,10 +94,25 @@ function pruneExpiredBuckets(now: number): void {
   }
 }
 
+function take(key: string, limit: number, now: number): { bucket: RateLimitBucket; full: boolean } {
+  const previous = buckets.get(key);
+  const bucket =
+    !previous || previous.resetAt <= now ? { count: 0, resetAt: now + WINDOW_MS } : previous;
+  return { bucket, full: bucket.count >= limit };
+}
+
+function spend(key: string, bucket: RateLimitBucket): void {
+  bucket.count += 1;
+  // Refresh insertion order so the size bound behaves as a simple LRU.
+  buckets.delete(key);
+  buckets.set(key, bucket);
+}
+
 /**
  * Per-process fixed-window protection for the model-backed chat endpoint.
- * The source address is immediately transformed with a keyed HMAC; neither
- * the raw address nor the digest is written to logs or durable storage.
+ * The source address and the tab value are immediately combined with a keyed
+ * HMAC; neither the raw values nor the digests are written to logs or durable
+ * storage, and a bucket lives in memory for one minute.
  *
  * This intentionally is not presented as a distributed quota. Multi-instance
  * deployments should replace the Map with a shared atomic store while keeping
@@ -101,38 +127,40 @@ export function checkChatRateLimit(request: Request, now = Date.now()): ChatRate
     pruneExpiredBuckets(now);
   }
 
-  const key = createHmac('sha256', hashKey)
-    .update(sourceNetworkAddress(request))
-    .digest('hex');
-  const previous = buckets.get(key);
-  const bucket =
-    !previous || previous.resetAt <= now
-      ? { count: 0, resetAt: now + WINDOW_MS }
-      : previous;
+  const address = sourceNetworkAddress(request);
+  const token = request.headers.get(CLIENT_HEADER)?.trim();
+  const digest = (value: string) => createHmac('sha256', hashKey).update(value).digest('hex');
+  // Without a tab value (older pages, scripts) the address is the client, as
+  // before; with one, each tab has its own window under the address ceiling.
+  const clientKey = token && CLIENT_TOKEN.test(token)
+    ? digest(`tab:${address}:${token}`)
+    : digest(address);
+  const networkKey = token && CLIENT_TOKEN.test(token) ? digest(`network:${address}`) : null;
 
-  if (bucket.count >= REQUEST_LIMIT) {
+  const client = take(clientKey, REQUEST_LIMIT, now);
+  const network = networkKey ? take(networkKey, NETWORK_LIMIT, now) : null;
+  const blocking = client.full ? client : network?.full ? network : null;
+  if (blocking) {
     return {
       allowed: false,
-      limit: REQUEST_LIMIT,
+      limit: blocking === client ? REQUEST_LIMIT : NETWORK_LIMIT,
       remaining: 0,
-      resetAt: bucket.resetAt,
-      retryAfterSeconds: Math.max(1, Math.ceil((bucket.resetAt - now) / 1_000)),
+      resetAt: blocking.bucket.resetAt,
+      retryAfterSeconds: Math.max(1, Math.ceil((blocking.bucket.resetAt - now) / 1_000)),
     };
   }
 
-  bucket.count += 1;
-  // Refresh insertion order so the size bound behaves as a simple LRU.
-  buckets.delete(key);
-  buckets.set(key, bucket);
+  spend(clientKey, client.bucket);
+  if (networkKey && network) spend(networkKey, network.bucket);
   return {
     allowed: true,
     limit: REQUEST_LIMIT,
-    remaining: REQUEST_LIMIT - bucket.count,
-    resetAt: bucket.resetAt,
+    remaining: REQUEST_LIMIT - client.bucket.count,
+    resetAt: client.bucket.resetAt,
     clientIdentity: {
-      key,
+      key: clientKey,
       ...(sharedKey
-        ? { signature: createHmac('sha256', sharedKey).update(key).digest('hex') }
+        ? { signature: createHmac('sha256', sharedKey).update(clientKey).digest('hex') }
         : {}),
     },
   };
