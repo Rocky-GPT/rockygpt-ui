@@ -2,10 +2,6 @@ export interface ShuttleStop { location: string; time: string }
 export interface ShuttleRoute { departure: string; stops: ShuttleStop[]; arrival: string }
 export interface ShuttleSchedule {
   trainLoop: ShuttleRoute[];
-  shortline: {
-    toNYC: { weekday: string[]; saturday: string[]; sunday: string[] };
-    fromNYC: { weekday: string[]; saturday: string[]; sunday: string[] };
-  };
   weekday: ShuttleRoute[];
   saturday: ShuttleRoute[];
   sunday: ShuttleRoute[];

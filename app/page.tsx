@@ -33,6 +33,7 @@ import remarkGfm from 'remark-gfm';
 import { bindGlobalTapHaptics, destroyHaptics, triggerHaptic } from '@/lib/haptics';
 import { useViewportBand } from '@/lib/visual-viewport';
 import { MAX_MESSAGE_LENGTH } from '@/lib/brain-api';
+import { useAccessibleDialog } from '@/components/useAccessibleDialog';
 import { buildRequestMessages } from '@/lib/chat-conversation';
 
 interface ChatMessage {
@@ -779,6 +780,22 @@ export default function Home() {
     setIsWelcomeModalOpen(true);
   }, [isSplashDismissed, shouldOpenWelcomeOnLoad]);
 
+  // Home-screen shortcuts in manifest.json open a panel directly. They used to
+  // point at /?q=dining, which nothing read, so they just opened the home page.
+  useEffect(() => {
+    const panel = new URLSearchParams(window.location.search).get('open');
+    if (!panel) return;
+    const openers: Record<string, () => void> = {
+      menu: () => setIsMenuOpen(true),
+      events: () => setIsEventsModalOpen(true),
+      shuttle: () => setIsBusModalOpen(true),
+      directory: () => setIsDirectoryModalOpen(true),
+      safety: () => setIsSafetyModalOpen(true),
+    };
+    openers[panel]?.();
+    window.history.replaceState(null, '', window.location.pathname);
+  }, []);
+
   const handleCloseWelcome = useCallback(() => {
     setIsWelcomeModalOpen(false);
     setShouldOpenWelcomeOnLoad(false);
@@ -854,9 +871,17 @@ export default function Home() {
   const [isIOS, setIsIOS] = useState(false);
   const [showIOSInstructions, setShowIOSInstructions] = useState(false);
   useEffect(() => {
-    // Check if it's iOS
-    const isIOSDevice = /iPad|iPhone|iPod/.test(navigator.userAgent) && !('MSStream' in window);
+    // Check if it's iOS. iPadOS reports a Mac user agent, but a Mac has no touch.
+    const isIOSDevice =
+      (/iPad|iPhone|iPod/.test(navigator.userAgent) ||
+        (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1)) &&
+      !('MSStream' in window);
     setIsIOS(isIOSDevice);
+    // Safari never fires beforeinstallprompt, so on iOS the Install entry (and
+    // the instructions behind it) could never appear. Offer it directly.
+    if (isIOSDevice && !window.matchMedia('(display-mode: standalone)').matches) {
+      setShowInstallButton(true);
+    }
 
     // Listen for install prompt (Chrome/Edge/Android)
     const handleBeforeInstallPrompt = (e: Event) => {
@@ -894,10 +919,10 @@ export default function Home() {
     if (!deferredPrompt) return;
     deferredPrompt.prompt();
     const { outcome } = await deferredPrompt.userChoice;
-    if (outcome === 'accepted') {
-      setShowInstallButton(false);
-      triggerHaptic('success');
-    }
+    if (outcome === 'accepted') triggerHaptic('success');
+    // A prompt can be shown once. After a dismissal the button stayed and did
+    // nothing, so it goes either way until the browser offers a new prompt.
+    setShowInstallButton(false);
     setDeferredPrompt(null);
   };
 
@@ -1312,7 +1337,7 @@ export default function Home() {
                 type="button"
                 onClick={handleInstall}
                 aria-label="Install RockyGPT"
-                className="flex min-h-11 min-w-11 items-center justify-center gap-2 px-3 rounded-2xl bg-primary text-primary-foreground hover:bg-primary/90 transition-colors text-xs font-medium"
+                className="hidden min-h-11 min-w-11 items-center justify-center gap-2 px-3 rounded-2xl bg-primary text-primary-foreground hover:bg-primary/90 transition-colors text-xs font-medium sm:flex"
               >
                 <Download aria-hidden="true" className="h-4 w-4" />
                 <span className="hidden xs:inline">Install</span>
@@ -1682,6 +1707,19 @@ export default function Home() {
                     action: () => setIsSafetyModalOpen(true),
                     color: 'text-[#f4a8b5] bg-[#4d161d]/80 border-[#8E0A26]/40',
                   },
+                  // A fourth header button does not fit a phone, so there
+                  // installing lives here with the other campus actions.
+                  ...(showInstallButton
+                    ? [
+                        {
+                          icon: Download,
+                          label: 'Add to Home Screen',
+                          desc: 'Open RockyGPT like an app',
+                          action: () => void handleInstall(),
+                          color: 'text-[#f4a8b5] bg-[#4d161d]/80 border-[#8E0A26]/40',
+                        },
+                      ]
+                    : []),
                   {
                     icon: FileText,
                     label: 'Privacy Policy',
@@ -1850,26 +1888,7 @@ export default function Home() {
       />
 
       {showIOSInstructions && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
-          onClick={() => setShowIOSInstructions(false)}
-        >
-          <div
-            className="bg-background rounded-2xl p-6 max-w-sm w-full shadow-2xl border border-border"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="text-lg font-bold mb-4">Install RockyGPT</h3>
-            <p className="text-sm text-muted-foreground mb-4">
-              Add RockyGPT to your home screen for quick access.
-            </p>
-            <button
-              onClick={() => setShowIOSInstructions(false)}
-              className="w-full py-3 rounded-xl bg-primary text-primary-foreground font-medium"
-            >
-              Got it!
-            </button>
-          </div>
-        </div>
+        <IOSInstallInstructions onClose={() => setShowIOSInstructions(false)} />
       )}
 
     </div>
@@ -1881,6 +1900,53 @@ export default function Home() {
  * after the old question had already been removed) and until a rate limit's
  * wait is over, so a tap cannot spend the next attempt on the same refusal.
  */
+/**
+ * How to install on iOS, where Safari has no install prompt to call. The
+ * dialog used to say only "Add RockyGPT to your home screen" with no steps.
+ */
+function IOSInstallInstructions({ onClose }: { onClose: () => void }) {
+  const dialogRef = useAccessibleDialog(true, onClose);
+  return (
+    <div
+      className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+      onClick={onClose}
+    >
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="ios-install-title"
+        tabIndex={-1}
+        className="bg-background rounded-2xl p-6 max-w-sm w-full shadow-2xl border border-border"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 id="ios-install-title" className="text-lg font-bold mb-3">
+          Add RockyGPT to your Home Screen
+        </h3>
+        <ol className="mb-5 list-decimal space-y-2 pl-5 text-sm text-muted-foreground">
+          <li>
+            In Safari, tap the <span className="font-medium text-foreground">Share</span> button
+            (the square with an arrow pointing up).
+          </li>
+          <li>
+            Scroll down and tap <span className="font-medium text-foreground">Add to Home Screen</span>.
+          </li>
+          <li>
+            Tap <span className="font-medium text-foreground">Add</span>.
+          </li>
+        </ol>
+        <button
+          type="button"
+          onClick={onClose}
+          className="w-full min-h-11 rounded-xl bg-primary text-primary-foreground font-medium"
+        >
+          Got it
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function RetryButton({
   retryAt,
   busy,

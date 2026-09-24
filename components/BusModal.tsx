@@ -1,7 +1,12 @@
 /**
  * @module components/BusModal
- * Full-screen modal displaying the Ramapo Roadrunner Express shuttle,
- * Shortline bus, and train-loop schedules with tab-based navigation.
+ * Full-screen modal displaying the Ramapo Roadrunner Express shuttle and the
+ * Ramsey Route 17 train-station loop, with tab-based navigation.
+ *
+ * Everything shown comes from the published schedule. The Shortline tab, its
+ * ticket price and gate numbers, the parking permit prices and the pickup
+ * landmarks were typed into this file with no source and no date, so they
+ * are gone rather than left to go stale.
  */
 
 'use client';
@@ -19,23 +24,8 @@ interface ModalProps {
   onClose: () => void;
 }
 
-const pickupLocations = [
-  { name: "Bradley Center", detail: "Main Campus Stop" },
-  { name: "Interstate Plaza", detail: "In front of Macy's" },
-  { name: "Garden State Plaza", detail: "Bus shelters across from Neiman Marcus" },
-  { name: "Ramsey Train Station", detail: "Rt 17 Train Station" },
-  { name: "CityMD Ramsey", detail: "Outside main entrance" },
-  { name: "Ramsey Square", detail: "Shopping Center" },
-];
-
-type ShortlineDayKey = 'weekday' | 'saturday' | 'sunday';
-
 const EMPTY_SCHEDULE: ShuttleSchedule = {
   trainLoop: [],
-  shortline: {
-    toNYC: { weekday: [], saturday: [], sunday: [] },
-    fromNYC: { weekday: [], saturday: [], sunday: [] },
-  },
   weekday: [],
   saturday: [],
   sunday: [],
@@ -63,22 +53,20 @@ const OFFICIAL_SHUTTLE_URL =
 export function BusModal({ isOpen, onClose }: ModalProps) {
   const dialogRef = useAccessibleDialog(isOpen, onClose);
   const [activeTab, setActiveTab] = useState<string>('Weekday');
-  const [serviceType, setServiceType] = useState<'Roadrunner' | 'TrainLoop' | 'Shortline' | 'MoreInfo'>('Roadrunner');
+  const [serviceType, setServiceType] = useState<'Roadrunner' | 'TrainLoop' | 'MoreInfo'>('Roadrunner');
   const [currentTime, setCurrentTime] = useState(newYorkNow);
   const [scheduleState, setScheduleState] = useState<'loading' | 'ready' | 'unavailable'>('loading');
   const [scheduleAttempt, setScheduleAttempt] = useState(0);
   const [shuttleSchedule, setShuttleSchedule] = useState<ShuttleSchedule>(EMPTY_SCHEDULE);
   const contentRef = useRef<HTMLDivElement | null>(null);
-  const serviceBadgeClass: Record<'Roadrunner' | 'TrainLoop' | 'Shortline' | 'MoreInfo', string> = {
+  const serviceBadgeClass: Record<'Roadrunner' | 'TrainLoop' | 'MoreInfo', string> = {
     Roadrunner: 'bg-primary/20 border border-primary/35 text-primary-foreground',
     TrainLoop: 'bg-primary/20 border border-primary/35 text-primary-foreground',
-    Shortline: 'bg-primary/20 border border-primary/35 text-primary-foreground',
     MoreInfo: 'bg-primary/20 border border-primary/35 text-primary-foreground',
   };
-  const serviceButtonActiveClass: Record<'Roadrunner' | 'TrainLoop' | 'Shortline' | 'MoreInfo', string> = {
+  const serviceButtonActiveClass: Record<'Roadrunner' | 'TrainLoop' | 'MoreInfo', string> = {
     Roadrunner: 'bg-[#631c26] text-white border border-[#7a2a37]/70 shadow-sm',
     TrainLoop: 'bg-[#631c26] text-white border border-[#7a2a37]/70 shadow-sm',
-    Shortline: 'bg-[#631c26] text-white border border-[#7a2a37]/70 shadow-sm',
     MoreInfo: 'bg-[#631c26] text-white border border-[#7a2a37]/70 shadow-sm',
   };
   const dayButtonActiveClass: Record<'Weekday' | 'Saturday' | 'Sunday', string> = {
@@ -185,80 +173,25 @@ export function BusModal({ isOpen, onClose }: ModalProps) {
     return date;
   };
 
-  const getScheduleForDate = (date: Date): { type: string, routes: ShuttleRoute[] } => {
-    const day = date.getDay(); // 0 = Sunday, 6 = Saturday
-
-    if (serviceType === 'TrainLoop') {
-      if (shuttleSchedule.trainLoop) {
-         if (day === 0 || day === 6) return { type: 'No Service (Weekend)', routes: [] };
-         return { type: 'Weekday', routes: shuttleSchedule.trainLoop };
-      }
-      return { type: 'No Service', routes: [] };
-    }
-
-    if (serviceType === 'Shortline') {
-       if (!shuttleSchedule.shortline) return { type: 'Information', routes: [] };
-       // Map simple string arrays to ShuttleRoute format for consistent rendering
-       // We'll create a helper to convert "HH:MM" 24h to "H:MM AM/PM"
-       const to12h = (time24: string) => {
-         const [h, m] = time24.split(':').map(Number);
-         const period = h >= 12 ? 'PM' : 'AM';
-         const h12 = h % 12 || 12;
-         return `${h12}:${m.toString().padStart(2, '0')} ${period}`;
-       };
-
-       const createRoute = (time: string, direction: 'To NYC' | 'From NYC') => ({
-          departure: to12h(time),
-          stops: [{ location: direction === 'To NYC' ? 'Port Authority' : 'Main Entrance', time: 'Arrive' }],
-          arrival: direction === 'To NYC' ? 'NYC' : 'Ramapo'
-       });
-
-       const getTimes = (dir: 'toNYC' | 'fromNYC') => {
-          if (day === 0) return shuttleSchedule.shortline[dir].sunday;
-          if (day === 6) return shuttleSchedule.shortline[dir].saturday;
-          return shuttleSchedule.shortline[dir].weekday;
-       };
-       
-       const toNYC = getTimes('toNYC').map(t => createRoute(t, 'To NYC'));
-       const fromNYC = getTimes('fromNYC').map(t => createRoute(t, 'From NYC'));
-       
-       // Sort by time
-       const allRoutes = [...toNYC, ...fromNYC].sort((a, b) => {
-          const dateA = parseTime(a.departure, today);
-          const dateB = parseTime(b.departure, today);
-          return dateA.getTime() - dateB.getTime();
-       });
-
-       return { type: day === 0 ? 'Sunday' : day === 6 ? 'Saturday' : 'Weekday', routes: allRoutes };
-    }
-
-    if (serviceType === 'MoreInfo') {
-      return { type: 'Information', routes: [] };
-    }
-
-    if (day === 0) return { type: 'Sunday', routes: shuttleSchedule.sunday };
-    if (day === 6) return { type: 'Saturday', routes: shuttleSchedule.saturday };
-    return { type: 'Weekday', routes: shuttleSchedule.weekday };
-  };
-
   // Determine schedules
-  const todaySchedule = getScheduleForDate(today);
+  const pickupLocations = Array.from(
+    new Set(
+      [...shuttleSchedule.weekday, ...shuttleSchedule.saturday, ...shuttleSchedule.sunday]
+        .flatMap((route) => route.stops.map((stop) => stop.location.trim()))
+        .filter(Boolean)
+    )
+  );
 
   // Find next bus for Today / Current Tab
   let nextBusIndex = -1;
   const isViewingCurrentDay = activeTab === currentDayType;
 
   if (isViewingCurrentDay) {
-    const routesToCheck = serviceType === 'Roadrunner' 
+    const finalRoutes = serviceType === 'Roadrunner'
        ? (activeTab === 'Weekday' ? shuttleSchedule.weekday : activeTab === 'Saturday' ? shuttleSchedule.saturday : shuttleSchedule.sunday)
        : serviceType === 'TrainLoop'
        ? (activeTab === 'Weekday' ? (shuttleSchedule.trainLoop || []) : [])
-       : (dayNum === 0 ? todaySchedule.routes : dayNum === 6 ? todaySchedule.routes : todaySchedule.routes);
-
-    // For Shortline, the routes are already computed in getScheduleForDate based on the actual date
-    // For Roadrunner, we use the static arrays.
-    
-    const finalRoutes = (serviceType === 'Shortline') ? todaySchedule.routes : routesToCheck;
+       : [];
 
     nextBusIndex = finalRoutes.findIndex(route => {
       const busTime = parseTime(route.departure, today);
@@ -333,15 +266,13 @@ export function BusModal({ isOpen, onClose }: ModalProps) {
             <div className={`p-2.5 rounded-xl ${serviceBadgeClass[serviceType]}`}>
               {serviceType === 'Roadrunner' && <Bus className="w-5 h-5 text-current" />}
               {serviceType === 'TrainLoop' && <TrainFront className="w-5 h-5 text-current" />}
-              {serviceType === 'Shortline' && <Bus className="w-5 h-5 text-current" />}
               {serviceType === 'MoreInfo' && <div className="w-5 h-5 text-current font-bold flex items-center justify-center">?</div>}
             </div>
             <div>
               <h2 className="text-xl font-bold leading-none mb-1">Shuttle & Transit</h2>
               <p className="text-xs text-muted-foreground font-medium">
                 {serviceType === 'Roadrunner' && 'Ramapo Roadrunner Express'}
-                {serviceType === 'TrainLoop' && 'Mid-Day Express Loop'}
-                {serviceType === 'Shortline' && 'Coach USA / Shortline Bus'}
+                {serviceType === 'TrainLoop' && 'Ramsey Route 17 train station loop'}
                 {serviceType === 'MoreInfo' && 'Transportation Resources'}
               </p>
             </div>
@@ -358,8 +289,7 @@ export function BusModal({ isOpen, onClose }: ModalProps) {
 
         {/* Service Switcher */}
         <div className="px-4 pt-3 pb-1 bg-background">
-          {/* Four tabs cannot share a 320px row: "Roadrunner" ran into "Mid-Day". */}
-          <div className="grid grid-cols-2 gap-1 p-1 bg-muted rounded-lg border border-border/60 min-[400px]:grid-cols-4">
+          <div className="grid grid-cols-3 gap-1 p-1 bg-muted rounded-lg border border-border/60">
             <button
                onClick={() => setServiceType('Roadrunner')}
                className={`w-full min-h-9 px-2 py-1.5 text-[11px] font-semibold rounded-md transition-all whitespace-nowrap ${serviceType === 'Roadrunner' ? serviceButtonActiveClass.Roadrunner : 'text-muted-foreground hover:text-foreground hover:bg-background/40'}`}
@@ -373,12 +303,6 @@ export function BusModal({ isOpen, onClose }: ModalProps) {
               Mid-Day
             </button>
             <button
-               onClick={() => setServiceType('Shortline')}
-               className={`w-full min-h-9 px-2 py-1.5 text-[11px] font-semibold rounded-md transition-all whitespace-nowrap ${serviceType === 'Shortline' ? serviceButtonActiveClass.Shortline : 'text-muted-foreground hover:text-foreground hover:bg-background/40'}`}
-            >
-              Shortline
-            </button>
-            <button
                onClick={() => setServiceType('MoreInfo')}
                className={`w-full min-h-9 px-2 py-1.5 text-[11px] font-semibold rounded-md transition-all whitespace-nowrap ${serviceType === 'MoreInfo' ? serviceButtonActiveClass.MoreInfo : 'text-muted-foreground hover:text-foreground hover:bg-background/40'}`}
             >
@@ -388,7 +312,7 @@ export function BusModal({ isOpen, onClose }: ModalProps) {
         </div>
 
         {/* Tabs */}
-        {(serviceType === 'Roadrunner' || serviceType === 'TrainLoop' || serviceType === 'Shortline') && (
+        {(serviceType === 'Roadrunner' || serviceType === 'TrainLoop') && (
           <div className="flex border-b border-border bg-muted/30 p-1 gap-1">
              {(['Weekday', 'Saturday', 'Sunday'] as const).map(tab => (
               <button
@@ -407,7 +331,7 @@ export function BusModal({ isOpen, onClose }: ModalProps) {
         )}
 
         {/* Info Banner */}
-        {scheduleState === 'ready' && ((serviceType === 'TrainLoop' || serviceType === 'Shortline' || serviceType === 'Roadrunner') && activeTab === currentDayType) && (
+        {scheduleState === 'ready' && ((serviceType === 'TrainLoop' || serviceType === 'Roadrunner') && activeTab === currentDayType) && (
           <div className="bg-blue-500/10 border-b border-blue-500/20 px-4 py-2 flex items-center justify-between">
              <span className="text-xs font-medium text-blue-600 dark:text-blue-400">
                Showing Today&apos;s Schedule
@@ -459,71 +383,19 @@ export function BusModal({ isOpen, onClose }: ModalProps) {
                    )
                 )}
 
-                {serviceType === 'Shortline' && (
-                   <div className="space-y-4">
-                      {(() => {
-                        const shortlineDayKey = activeTab.toLowerCase() as ShortlineDayKey;
-                        const toNycTimes = shuttleSchedule.shortline?.toNYC?.[shortlineDayKey] ?? [];
-                        const fromNycTimes = shuttleSchedule.shortline?.fromNYC?.[shortlineDayKey] ?? [];
-
-                        return (
-                          <>
-                      <div className="bg-muted/30 border border-border rounded-xl p-4">
-                        <h3 className="font-bold text-lg mb-2">🚍 {activeTab} Schedule</h3>
-                        <div className="grid grid-cols-2 gap-4">
-                           <div>
-                              <h4 className="font-semibold text-xs text-primary mb-2 uppercase tracking-wider">To NYC</h4>
-                              <div className="space-y-1">
-                                {toNycTimes.map((t: string) => {
-                                   const [h, m] = t.split(':').map(Number);
-                                   const period = h >= 12 ? 'PM' : 'AM';
-                                   const h12 = h % 12 || 12;
-                                   return (
-                                     <div key={t} className="text-sm border-b border-border/50 py-1 flex justify-between">
-                                        <span>{h12}:{m.toString().padStart(2, '0')} {period}</span>
-                                     </div>
-                                   );
-                                })}
-                              </div>
-                           </div>
-                           <div>
-                              <h4 className="font-semibold text-xs text-primary mb-2 uppercase tracking-wider">From NYC</h4>
-                              <div className="space-y-1">
-                                {fromNycTimes.map((t: string) => {
-                                   const [h, m] = t.split(':').map(Number);
-                                   const period = h >= 12 ? 'PM' : 'AM';
-                                   const h12 = h % 12 || 12;
-                                   return (
-                                     <div key={t} className="text-sm border-b border-border/50 py-1 flex justify-between">
-                                        <span>{h12}:{m.toString().padStart(2, '0')} {period}</span>
-                                     </div>
-                                   );
-                                })}
-                              </div>
-                           </div>
-                        </div>
-                      </div>
-                      <div className="bg-background border border-border rounded-lg p-3 text-xs">
-                         <p>From NYC buses depart from <strong>Port Authority Gates 408/409</strong>.</p>
-                         <p>Tickets: $9.00 (Student Discount) at CSI Office.</p>
-                      </div>
-                          </>
-                        );
-                      })()}
-                   </div>
-                )}
-                
                 {serviceType === 'Roadrunner' && (
                    <div className="pt-4 border-t border-border">
                       <h3 className="font-bold mb-2 flex items-center gap-2">
                         <MapPin className="w-4 h-4 text-muted-foreground" />
-                        Pickup Locations
+                        Stops
                       </h3>
+                      <p className="mb-2 text-xs text-muted-foreground">
+                        Every stop in the published schedule. Buses leave from and return to campus.
+                      </p>
                       <div className="space-y-2">
-                        {pickupLocations.map((loc, idx) => (
-                          <div key={idx} className="bg-muted/30 border border-border rounded-xl p-3">
-                            <p className="font-medium text-foreground">{loc.name}</p>
-                            <p className="text-xs text-muted-foreground">{loc.detail}</p>
+                        {pickupLocations.map((name) => (
+                          <div key={name} className="bg-muted/30 border border-border rounded-xl p-3">
+                            <p className="font-medium text-foreground">{name}</p>
                           </div>
                         ))}
                       </div>
@@ -534,51 +406,45 @@ export function BusModal({ isOpen, onClose }: ModalProps) {
 
           {serviceType === 'MoreInfo' && (
             <div className="space-y-5 pt-2">
-              {/* Parking Section */}
+              {/* Only statements Ramapo's own pages make, each linked to its page. */}
               <div className="space-y-2">
                 <h3 className="font-bold text-base flex items-center gap-2 text-primary">
                   <div className="p-1 bg-primary/10 rounded-md"><MapPin className="w-3.5 h-3.5" /></div>
-                  Parking Info
+                  Parking
                 </h3>
-                <div className="bg-muted/30 border border-border rounded-xl p-4 text-sm space-y-3">
-                   <div className="flex justify-between items-start border-b border-border/50 pb-2">
-                     <div>
-                       <span className="font-semibold block">Commuter Permit</span>
-                       <span className="text-xs text-muted-foreground">Valid in B1, B2, B3 lots</span>
-                     </div>
-                     <span className="font-bold text-foreground">~$213/yr</span>
-                   </div>
-                   <div className="flex justify-between items-start border-b border-border/50 pb-2">
-                     <div>
-                       <span className="font-semibold block">Resident Permit</span>
-                       <span className="text-xs text-muted-foreground">Assigned lot only</span>
-                     </div>
-                     <span className="font-bold text-foreground">~$200/yr</span>
-                   </div>
-                   <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-2.5 text-xs text-red-600 dark:text-red-400">
-                     <span className="font-bold">⚠️ Important Rule:</span> No overnight parking in commuter lots between <strong>2:00 AM - 6:00 AM</strong>.
-                   </div>
-                   <div className="text-xs text-muted-foreground">
-                     Guests must be registered online for overnight stays.
-                   </div>
+                <div className="bg-muted/30 border border-border rounded-xl p-4 text-sm space-y-2">
+                  <p>Every campus lot requires a Ramapo parking permit.</p>
+                  <p className="text-xs text-muted-foreground">
+                    Visitors and overnight guests get a temporary permit at the Public Safety booth at the main entrance.
+                  </p>
+                  <a
+                    href="https://www.ramapo.edu/publicsafety/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex min-h-11 items-center text-xs font-medium text-foreground underline underline-offset-4"
+                  >
+                    Permits, prices and lot rules: Ramapo Public Safety
+                  </a>
                 </div>
               </div>
 
-              {/* Other Transit */}
               <div className="space-y-2">
                 <h3 className="font-bold text-base flex items-center gap-2 text-primary">
                   <div className="p-1 bg-primary/10 rounded-md"><TrainFront className="w-3.5 h-3.5" /></div>
-                  NJ Transit Train
+                  Getting to the train
                 </h3>
-                <div className="bg-muted/30 border border-border rounded-xl p-4 text-sm">
-                   <p className="mb-2">
-                     <strong>Ramsey Route 17 Station</strong> is the closest train hub.
-                   </p>
-                   <ul className="list-disc pl-4 space-y-1 text-xs text-muted-foreground">
-                     <li>Access via <strong>Mid-Day Express</strong> shuttle or <strong>Roadrunner Express</strong>.</li>
-                     <li>Direct service to Secaucus Junction & Hoboken.</li>
-                     <li>Connect at Secaucus for NYC Penn Station.</li>
-                   </ul>
+                <div className="bg-muted/30 border border-border rounded-xl p-4 text-sm space-y-2">
+                  <p>
+                    The Roadrunner Express and the Ramsey Route 17 loop both stop at the Ramsey Route 17 train station.
+                  </p>
+                  <a
+                    href="https://www.ramapo.edu/about/transportation-services/ramapo-roadrunner-express-shuttle/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex min-h-11 items-center text-xs font-medium text-foreground underline underline-offset-4"
+                  >
+                    Ramapo&rsquo;s shuttle page
+                  </a>
                 </div>
               </div>
             </div>
