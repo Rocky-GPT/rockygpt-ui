@@ -96,6 +96,7 @@ test('an unavailable program API is not presented as an empty catalog', async ({
   await page.goto('/');
   await page.getByRole('button', { name: 'Majors', exact: true }).click();
   const modal = page.getByRole('dialog', { name: 'Majors and programs' });
-  await expect(modal.getByRole('alert')).toContainText('Program data is unavailable');
+  await expect(modal.getByRole('alert')).toContainText(/Couldn.t load majors and programs/);
+  await expect(modal.getByRole('button', { name: 'Try again' })).toBeVisible();
   await expect(modal.getByText('No programs found')).toHaveCount(0);
 });
