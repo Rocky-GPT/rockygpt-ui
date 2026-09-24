@@ -23,12 +23,12 @@ const facts = [
   {
     icon: ThumbsUp,
     title: 'When you rate an answer',
-    body: 'Rating an answer saves the question you asked, the answer, your rating and any reason or comment, so a wrong answer can be found and fixed. Before anything is saved, email addresses, personal phone numbers, student ID numbers, Social Security numbers and card numbers are removed from your question and comment. There is no automatic deletion yet; email the address below to have your feedback removed.',
+    body: 'Rating an answer saves the question you asked, the answer, your rating and any reason or comment, so a wrong answer can be found and fixed. Before anything is saved, email addresses, personal phone numbers, student ID numbers, Social Security numbers and card numbers are removed from your question and comment. Feedback does not expire; email the address below to have yours removed.',
   },
   {
     icon: Smartphone,
     title: 'On your device',
-    body: 'The current conversation is kept in this browser tab so it survives a reload, and it is gone when the tab closes. Your browser also remembers that you have seen the welcome tour and the role you picked, if you picked one. RockyGPT sets no cookies and uses no analytics or advertising trackers.',
+    body: 'The current conversation is kept in this browser tab so it survives a reload, and it is gone when the tab closes, along with a random value the tab sends only for the chat limit described below. Your browser also remembers that you have seen the welcome tour and the role you picked, if you picked one. RockyGPT sets no cookies and uses no analytics or advertising trackers.',
   },
 ];
 
@@ -104,10 +104,11 @@ export default function PrivacyPage() {
             question to another or to a person.
           </p>
           <p className="leading-7 text-muted-foreground">
-            To limit automated abuse, the UI immediately converts the source network address to a
-            keyed digest and keeps only a bounded in-memory request counter for approximately one
-            minute. The application does not write the raw network address or that short-lived
-            limiter digest to its logs or database.
+            To limit automated abuse, each browser tab can ask 12 questions a minute, and one
+            network can ask 120. The website combines your network address and the tab&rsquo;s
+            random value into a keyed digest and keeps only a request counter in memory for about a
+            minute. Neither the address, the tab value nor the digest is written to logs or the
+            database.
           </p>
           <p className="leading-7 text-muted-foreground">
             The website runs on Vercel and the answering service on Render. Campus data, turn

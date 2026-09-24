@@ -94,3 +94,29 @@ test('chat keeps its bounded per-client request window', async ({ request }, tes
   expect(denied.status()).toBe(429);
   expect(Number(denied.headers()['retry-after'])).toBeGreaterThan(0);
 });
+
+test('students sharing one network each get their own chat window', async ({ request }, testInfo) => {
+  const address = sourceAddress(testInfo.project.name, 61);
+  const tab = (token: string) => ({ 'x-forwarded-for': address, 'x-rockygpt-client': token });
+  const first = tab('a'.repeat(32));
+  const second = tab('b'.repeat(32));
+
+  for (let index = 0; index < 12; index += 1) {
+    const allowed = await request.post('/api/chat', {
+      data: { messages: [{ role: 'user', content: `First tab ${index}` }] },
+      headers: first,
+    });
+    expect(allowed.status()).toBe(200);
+  }
+  const firstDenied = await request.post('/api/chat', {
+    data: { messages: [{ role: 'user', content: 'First tab, one too many' }] },
+    headers: first,
+  });
+  expect(firstDenied.status()).toBe(429);
+
+  const secondAllowed = await request.post('/api/chat', {
+    data: { messages: [{ role: 'user', content: 'Second tab on the same network' }] },
+    headers: second,
+  });
+  expect(secondAllowed.status()).toBe(200);
+});

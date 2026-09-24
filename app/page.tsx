@@ -148,6 +148,30 @@ function settlePartialMarkdown(partial: string): string {
   return text;
 }
 
+/**
+ * A random value for this browser tab, sent with each question so the chat
+ * limit counts tabs instead of whole networks: a campus Wi-Fi puts a dorm
+ * behind a few addresses. It lives in sessionStorage and ends with the tab;
+ * the server keeps only a keyed hash of it, in memory, for a minute.
+ */
+let fallbackTabToken: string | null = null;
+function chatClientToken(): string {
+  const fresh = () =>
+    Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) =>
+      byte.toString(16).padStart(2, '0')
+    ).join('');
+  try {
+    const existing = window.sessionStorage.getItem('rockygpt_tab');
+    if (existing && /^[a-f0-9]{32}$/.test(existing)) return existing;
+    const created = fresh();
+    window.sessionStorage.setItem('rockygpt_tab', created);
+    return created;
+  } catch {
+    // Storage blocked: one value per page load still counts this tab alone.
+    return (fallbackTabToken ??= fresh());
+  }
+}
+
 async function revealAnswer(
   answer: string,
   signal: AbortSignal,
@@ -1036,6 +1060,7 @@ export default function Home() {
         headers: {
           'Content-Type': 'application/json',
           Accept: 'text/event-stream',
+          'x-rockygpt-client': chatClientToken(),
         },
         body: JSON.stringify({ messages: requestMessages }),
         signal: controller.signal,
