@@ -17,6 +17,7 @@ import Fuse from 'fuse.js';
 import { Virtuoso } from 'react-virtuoso';
 import { parseSemesterEventDate } from '@/lib/calendar-dates';
 import { anyArray, anyObject, loadCampusData, objectWithArray } from '@/lib/campus-data';
+import { PanelUnavailable } from '@/components/PanelUnavailable';
 import { MODAL_OVERLAY, MODAL_PANEL, MODAL_PANEL_SHORT } from '@/components/modalShell';
 import { DirectoryEntityCard } from '@/components/DirectoryEntityCard';
 import { isDirectoryIndex, type DirectoryIndex } from '@/lib/entity-facts';
@@ -187,6 +188,10 @@ export function EventsModal({ isOpen, onClose }: ModalProps) {
   const [selectedTag, setSelectedTag] = useState<string>('All');
   const [foodFilter, setFoodFilter] = useState<'none' | 'food' | 'snacks'>('none');
   const [loading, setLoading] = useState(true);
+  // A failed load is not an empty campus. "0 of 0 events" with Clear filters
+  // blamed the student's filters for our outage.
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   // Helper function to format date relative to today
   const formatRelativeDate = (dateString: string): string => {
@@ -242,9 +247,11 @@ export function EventsModal({ isOpen, onClose }: ModalProps) {
       void loadCampusData('/api/data/events', anyArray).then(result => {
         if (!result.ok) {
           console.error('Error loading events:', result.message);
+          setLoadFailed(true);
           setLoading(false);
           return;
         }
+        setLoadFailed(false);
         const upcoming = (result.data as EventItem[])
           .filter(isEventUpcoming)
           .sort(compareEventsByStart);
@@ -253,7 +260,7 @@ export function EventsModal({ isOpen, onClose }: ModalProps) {
         setLoading(false);
       });
     }
-  }, [isOpen]);
+  }, [isOpen, loadAttempt]);
 
   // Get all unique tags
   const allTags = ['All', ...Array.from(new Set(events.flatMap(e => e.tags || [])))].slice(0, 20);
@@ -315,7 +322,7 @@ export function EventsModal({ isOpen, onClose }: ModalProps) {
             <div>
               <h2 className="text-xl font-bold leading-none mb-1">Campus Events</h2>
               <p className="text-xs text-muted-foreground font-medium">
-                {filteredEvents.length} of {events.length} events
+                {loadFailed ? 'Unavailable right now' : `${filteredEvents.length} of ${events.length} events`}
               </p>
             </div>
           </div>
@@ -384,6 +391,14 @@ export function EventsModal({ isOpen, onClose }: ModalProps) {
             <div className="flex items-center justify-center h-full">
               <Loader2 className="w-8 h-8 animate-spin text-primary" />
             </div>
+          ) : loadFailed ? (
+            <PanelUnavailable
+              what="campus events"
+              officialUrl="https://archway.ramapo.edu/events"
+              officialLabel="Open Archway events"
+              onRetry={() => { setLoading(true); setLoadAttempt(a => a + 1); }}
+              className="my-10 px-4"
+            />
           ) : filteredEvents.length === 0 ? (
             <div className="text-center py-12 px-4">
               <p className="text-muted-foreground mb-2">No events found</p>
@@ -744,6 +759,8 @@ export function ClubsModal({ isOpen, onClose }: ModalProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('Student Orgs');
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [contactMenu, setContactMenu] = useState<null | { club: ClubItem; rect: DOMRect; mode: 'popover' | 'sheet' }>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
@@ -752,10 +769,11 @@ export function ClubsModal({ isOpen, onClose }: ModalProps) {
       void loadCampusData('/api/data/clubs', anyArray).then(result => {
         if (!result.ok) console.error('Error loading clubs:', result.message);
         setClubs(result.ok ? (result.data as ClubItem[]) : []);
+        setLoadFailed(!result.ok);
         setLoading(false);
       });
     }
-  }, [isOpen]);
+  }, [isOpen, loadAttempt]);
 
   const filteredClubs = useMemo(() => {
     let filtered = Array.isArray(clubs) ? clubs : [];
@@ -1182,7 +1200,7 @@ export function ClubsModal({ isOpen, onClose }: ModalProps) {
             <div>
               <h2 className="text-xl font-bold leading-none mb-1">All Clubs & Orgs</h2>
               <p className="text-xs text-muted-foreground font-medium">
-                {filteredClubs.length} organizations
+                {loadFailed ? 'Unavailable right now' : `${filteredClubs.length} organizations`}
               </p>
             </div>
           </div>
@@ -1228,6 +1246,14 @@ export function ClubsModal({ isOpen, onClose }: ModalProps) {
             <div className="flex items-center justify-center h-full">
               <Loader2 className="w-8 h-8 animate-spin text-primary" />
             </div>
+          ) : loadFailed ? (
+            <PanelUnavailable
+              what="student organizations"
+              officialUrl="https://archway.ramapo.edu/club_signup?view=all"
+              officialLabel="Open Archway organizations"
+              onRetry={() => { setLoading(true); setLoadAttempt(a => a + 1); }}
+              className="my-8"
+            />
           ) : filteredClubs.length === 0 ? (
             <div className="text-center py-12 px-4">
               <p className="text-muted-foreground mb-2">No organizations found</p>
@@ -1330,6 +1356,8 @@ export function CalendarModal({ isOpen, onClose }: ModalProps) {
   const [activeHousingSemester, setActiveHousingSemester] = useState<string>('');
   const [calendarMode, setCalendarMode] = useState<'academics' | 'housing'>('academics');
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const upNextRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -1380,15 +1408,17 @@ export function CalendarModal({ isOpen, onClose }: ModalProps) {
           if (academic.length > 0) setActiveSemester(academic[0].name);
           if (housing.length > 0) setActiveHousingSemester(housing[0].name);
           
+          setLoadFailed(false);
           setLoading(false);
         })
         .catch((err) => {
           console.error('Error loading calendar:', err);
           setSemesters([]);
+          setLoadFailed(true);
           setLoading(false);
         });
     }
-  }, [isOpen]);
+  }, [isOpen, loadAttempt]);
 
   useEffect(() => {
     if (isOpen) document.body.style.overflow = 'hidden';
@@ -1493,6 +1523,14 @@ export function CalendarModal({ isOpen, onClose }: ModalProps) {
             <div className="flex items-center justify-center h-full py-12">
               <Loader2 className="w-6 h-6 animate-spin text-primary" />
             </div>
+          ) : loadFailed ? (
+            <PanelUnavailable
+              what="the academic calendar"
+              officialUrl="https://www.ramapo.edu/academic-calendars/"
+              officialLabel="Open Ramapo's academic calendars"
+              onRetry={() => setLoadAttempt(a => a + 1)}
+              className="my-8"
+            />
           ) : activeEvents.length === 0 ? (
             <div className="text-center py-12 px-4">
               <p className="text-muted-foreground">No events found for this semester.</p>
@@ -2045,6 +2083,7 @@ export function MajorsModal({ isOpen, onClose }: ModalProps) {
   const dialogRef = useAccessibleDialog(isOpen, onClose);
   const [programs, setPrograms] = React.useState<ProgramsData | null>(null);
   const [programError, setProgramError] = React.useState<string | null>(null);
+  const [programAttempt, setProgramAttempt] = React.useState(0);
   const [loading, setLoading] = React.useState(true);
   const [levelFilter, setLevelFilter] = React.useState<'undergraduate' | 'graduate'>('undergraduate');
   const [programKindFilter, setProgramKindFilter] = React.useState<ProgramKindFilter>('major');
@@ -2082,7 +2121,7 @@ export function MajorsModal({ isOpen, onClose }: ModalProps) {
     void loadCampusData('/api/data/programs', objectWithArray('schools')).then(result => {
       if (!result.ok) {
         console.error('Failed to load programs:', result.message);
-        setProgramError('Program data is unavailable in this view. Use the official catalog below.');
+        setProgramError(result.message);
         setLoading(false);
         return;
       }
@@ -2090,7 +2129,7 @@ export function MajorsModal({ isOpen, onClose }: ModalProps) {
       setLoading(false);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen]);
+  }, [isOpen, programAttempt]);
 
   // PROB-018: the courses catalog is loaded lazily, only when a curriculum
   // view is actually requested.
@@ -2488,7 +2527,15 @@ export function MajorsModal({ isOpen, onClose }: ModalProps) {
               <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
             </div>
           )}
-          {!loading && programError && <p role="alert" className="text-sm text-muted-foreground p-4">{programError}</p>}
+          {!loading && programError && (
+            <PanelUnavailable
+              what="majors and programs"
+              officialUrl="https://www.ramapo.edu/majors-minors/"
+              officialLabel="Open Ramapo's majors and minors"
+              onRetry={() => setProgramAttempt(a => a + 1)}
+              className="my-6"
+            />
+          )}
           {!loading && !programError && filteredMajors.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full text-center py-12 px-6">
               <GraduationCap className="w-12 h-12 text-muted-foreground/30 mb-4" />

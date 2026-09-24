@@ -9,6 +9,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useAccessibleDialog } from '@/components/useAccessibleDialog';
 import { MODAL_PANEL } from '@/components/modalShell';
+import { PanelUnavailable } from '@/components/PanelUnavailable';
 import { anyObject, loadCampusData } from '@/lib/campus-data';
 import {
   Apple,
@@ -105,6 +106,9 @@ interface DiningHoursResponse {
 }
 
 const TRANSACT_BALANCE_URL = 'https://idx.transactcampus.com/accounts/ramapo-edu/id-card/home';
+// Where a student can still check when this panel cannot load: Ramapo Dining's
+// own page for the hall, the same source the menu and hours are collected from.
+const OFFICIAL_BIRCH_URL = 'https://ramapo.sodexomyway.com/en-us/locations/birch-tree-inn';
 
 // Date utilities for the day selector
 function getEstDate(offset = 0): Date {
@@ -465,9 +469,13 @@ export function MenuModal({ isOpen, onClose, defaultMeal }: MenuModalProps) {
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
   const [, setMenuUpdatedUtc] = useState<string | null>(null);
   const [menuUnavailable, setMenuUnavailable] = useState(false);
+  // A request that failed is not a menu that was never published. Showing
+  // "No Menu Published Today" for a 404 told students there was no food.
+  const [menuLoadFailed, setMenuLoadFailed] = useState(false);
   const [menuClosed, setMenuClosed] = useState<{ closed: boolean; reason?: string } | null>(null);
   const [diningHours, setDiningHours] = useState<DiningHoursResponse | null>(null);
   const [hoursLoading, setHoursLoading] = useState(true);
+  const [hoursAttempt, setHoursAttempt] = useState(0);
   const [selectedDayOffset, setSelectedDayOffset] = useState(0);
 
   // PROB-020: relative day options follow the current Eastern day. They are
@@ -502,6 +510,7 @@ export function MenuModal({ isOpen, onClose, defaultMeal }: MenuModalProps) {
     const isCurrent = () => menuRequestSeq.current === requestSeq;
     setLoading(true);
     setMenuUnavailable(false);
+    setMenuLoadFailed(false);
     setMenuClosed(null);
     setData([]);
     setActiveTab('');
@@ -568,7 +577,7 @@ export function MenuModal({ isOpen, onClose, defaultMeal }: MenuModalProps) {
       if (!isCurrent()) return;
       console.error(err);
       setMenuUpdatedUtc(null);
-      setMenuUnavailable(true);
+      setMenuLoadFailed(true);
       setActiveTab('Hours');
     } finally {
       if (!isCurrent()) return;
@@ -621,7 +630,7 @@ export function MenuModal({ isOpen, onClose, defaultMeal }: MenuModalProps) {
       setDiningHours(result.data as unknown as DiningHoursResponse);
       setHoursLoading(false);
     });
-  }, [isOpen, selectedDateParam]);
+  }, [isOpen, selectedDateParam, hoursAttempt]);
 
   // Lock scroll
   useEffect(() => {
@@ -811,6 +820,14 @@ export function MenuModal({ isOpen, onClose, defaultMeal }: MenuModalProps) {
                               The dining hall is closed ({menuClosed.reason || 'seasonal closure'}). No meals or food items are being served.
                             </p>
                           </div>
+                        ) : menuLoadFailed ? (
+                          <PanelUnavailable
+                            what="the menu"
+                            officialUrl={OFFICIAL_BIRCH_URL}
+                            officialLabel="Open Ramapo Dining"
+                            onRetry={() => fetchMenuForDate(selectedDayOffset, selectedDateParam)}
+                            className="mb-2"
+                          />
                         ) : menuUnavailable ? (
                           <div className="bg-muted/40 border border-border/60 rounded-xl p-4 text-center mb-2">
                             <p className="text-sm font-semibold text-foreground">
@@ -885,9 +902,13 @@ export function MenuModal({ isOpen, onClose, defaultMeal }: MenuModalProps) {
                             </div>
                           </>
                         ) : (
-                          <div className="flex flex-col items-center justify-center py-12 text-muted-foreground opacity-60">
-                            <p className="text-sm">Unable to load hours</p>
-                          </div>
+                          <PanelUnavailable
+                            what="dining hours"
+                            officialUrl={OFFICIAL_BIRCH_URL}
+                            officialLabel="Check hours on Ramapo Dining"
+                            onRetry={() => setHoursAttempt((attempt) => attempt + 1)}
+                            className="my-6"
+                          />
                         )}
                         
                         {/* Footer Note */}

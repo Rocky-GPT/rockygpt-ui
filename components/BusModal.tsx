@@ -12,6 +12,7 @@ import { X, Bus, MapPin, TrainFront } from 'lucide-react';
 import { loadCampusData, objectWithArray } from '@/lib/campus-data';
 import type { ShuttleRoute, ShuttleSchedule } from '@/lib/data-types';
 import { MODAL_PANEL } from '@/components/modalShell';
+import { PanelUnavailable } from '@/components/PanelUnavailable';
 
 interface ModalProps {
   isOpen: boolean;
@@ -41,13 +42,31 @@ const EMPTY_SCHEDULE: ShuttleSchedule = {
 };
 
 /**
+ * Now, as a clock on campus reads it.
+ *
+ * The schedule is published in New York time, but `new Date()` reads the
+ * phone's own zone, so a parent in California saw Sunday's schedule labelled
+ * "today" on a Saturday night and the wrong bus marked next. This returns a
+ * Date whose local fields are New York's wall clock, so `getDay()` and
+ * `setHours()` below compare against the published times directly.
+ */
+function newYorkNow(): Date {
+  return new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+}
+
+const OFFICIAL_SHUTTLE_URL =
+  'https://www.ramapo.edu/about/transportation-services/ramapo-roadrunner-express-shuttle/';
+
+/**
  * Modal for Ramapo shuttle and bus schedules.
  */
 export function BusModal({ isOpen, onClose }: ModalProps) {
   const dialogRef = useAccessibleDialog(isOpen, onClose);
   const [activeTab, setActiveTab] = useState<string>('Weekday');
   const [serviceType, setServiceType] = useState<'Roadrunner' | 'TrainLoop' | 'Shortline' | 'MoreInfo'>('Roadrunner');
-  const [currentTime, setCurrentTime] = useState(new Date());
+  const [currentTime, setCurrentTime] = useState(newYorkNow);
+  const [scheduleState, setScheduleState] = useState<'loading' | 'ready' | 'unavailable'>('loading');
+  const [scheduleAttempt, setScheduleAttempt] = useState(0);
   const [shuttleSchedule, setShuttleSchedule] = useState<ShuttleSchedule>(EMPTY_SCHEDULE);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const serviceBadgeClass: Record<'Roadrunner' | 'TrainLoop' | 'Shortline' | 'MoreInfo', string> = {
@@ -69,7 +88,7 @@ export function BusModal({ isOpen, onClose }: ModalProps) {
   };
 
   // Determine current day type for defaulting
-  const today = new Date();
+  const today = newYorkNow();
   const dayNum = today.getDay();
   const currentDayType = dayNum === 0 ? 'Sunday' : dayNum === 6 ? 'Saturday' : 'Weekday';
 
@@ -85,25 +104,28 @@ export function BusModal({ isOpen, onClose }: ModalProps) {
       .then((result) => {
         if (!result.ok) {
           console.error('Unable to load shuttle schedule:', result.message);
+          setScheduleState('unavailable');
           return;
         }
         setShuttleSchedule(result.data as unknown as ShuttleSchedule);
+        setScheduleState('ready');
       })
       .catch((error) => {
         if (error instanceof Error && error.name !== 'AbortError') {
           console.error('Unable to load shuttle schedule:', error);
+          setScheduleState('unavailable');
         }
       });
     return () => controller.abort();
-  }, [isOpen]);
+  }, [isOpen, scheduleAttempt]);
 
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = 'hidden';
-      setCurrentTime(new Date());
+      setCurrentTime(newYorkNow());
       setActiveTab(currentDayType);
       
-      const timer = setInterval(() => setCurrentTime(new Date()), 60000);
+      const timer = setInterval(() => setCurrentTime(newYorkNow()), 60000);
       return () => clearInterval(timer);
     } else {
       document.body.style.overflow = 'unset';
@@ -202,8 +224,8 @@ export function BusModal({ isOpen, onClose }: ModalProps) {
        
        // Sort by time
        const allRoutes = [...toNYC, ...fromNYC].sort((a, b) => {
-          const dateA = parseTime(a.departure, new Date());
-          const dateB = parseTime(b.departure, new Date());
+          const dateA = parseTime(a.departure, today);
+          const dateB = parseTime(b.departure, today);
           return dateA.getTime() - dateB.getTime();
        });
 
@@ -384,7 +406,7 @@ export function BusModal({ isOpen, onClose }: ModalProps) {
         )}
 
         {/* Info Banner */}
-        {((serviceType === 'TrainLoop' || serviceType === 'Shortline' || serviceType === 'Roadrunner') && activeTab === currentDayType) && (
+        {scheduleState === 'ready' && ((serviceType === 'TrainLoop' || serviceType === 'Shortline' || serviceType === 'Roadrunner') && activeTab === currentDayType) && (
           <div className="bg-blue-500/10 border-b border-blue-500/20 px-4 py-2 flex items-center justify-between">
              <span className="text-xs font-medium text-blue-600 dark:text-blue-400">
                Showing Today&apos;s Schedule
@@ -397,8 +419,27 @@ export function BusModal({ isOpen, onClose }: ModalProps) {
 
         {/* Content */}
         <div ref={contentRef} className="flex-1 overflow-y-auto scrollbar-none p-4">
+          {/* A blank schedule under "Showing Today's Schedule" read as no buses. */}
+          {serviceType !== 'MoreInfo' && scheduleState === 'unavailable' && (
+            <PanelUnavailable
+              what="the shuttle schedule"
+              officialUrl={OFFICIAL_SHUTTLE_URL}
+              officialLabel="Open Ramapo's shuttle page"
+              onRetry={() => {
+                setScheduleState('loading');
+                setScheduleAttempt((attempt) => attempt + 1);
+              }}
+              className="mb-4"
+            />
+          )}
+          {serviceType !== 'MoreInfo' && scheduleState === 'loading' && (
+            <p role="status" className="py-6 text-center text-sm text-muted-foreground">
+              Loading the shuttle schedule…
+            </p>
+          )}
+
           {/* Modal Content */}
-          {(activeTab === 'Weekday' || activeTab === 'Saturday' || activeTab === 'Sunday') && (
+          {scheduleState === 'ready' && (activeTab === 'Weekday' || activeTab === 'Saturday' || activeTab === 'Sunday') && (
              <div className="space-y-4">
                 {serviceType === 'Roadrunner' && renderRoutes(
                    activeTab === 'Weekday' ? shuttleSchedule.weekday : 
