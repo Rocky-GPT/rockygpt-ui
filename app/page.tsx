@@ -406,7 +406,7 @@ const AnswerMarkdown = memo(function AnswerMarkdown({
       p: ({ ...props }) => <p className="mb-3 last:mb-0" {...props} />,
       code: ({ ...props }) => (
         <code
-          className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[0.88em] text-foreground"
+          className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[0.88em] text-foreground [overflow-wrap:anywhere]"
           {...props}
         />
       ),
@@ -1126,6 +1126,10 @@ export default function Home() {
   };
 
   useEffect(() => {
+    // An empty chat has nothing to reveal. Scrolling to its end on load slid
+    // the greeting under the header on shorter phones: 101px at 375x667 cut
+    // "What can I help with?" in half, and 344px at 320x568 hid it entirely.
+    if (messages.length === 0) return;
     const frame = window.requestAnimationFrame(() => {
       const latest = messages[messages.length - 1];
       scrollToBottom(latest?.isTyping ? 'auto' : 'smooth');
@@ -1187,21 +1191,6 @@ export default function Home() {
     };
   }, [closeCampusActions, isActionMenuClosing, isActionMenuOpen]);
 
-  const latestMessage = messages[messages.length - 1];
-  const composerSuggestedQuestions =
-    [...messages].reverse().find((message) => (message.suggestedQuestions?.length || 0) > 0)
-      ?.suggestedQuestions ?? [];
-  // Offered while the composer is empty and withdrawn the moment you write
-  // your own question. These are what to ask *next*, not completions of what
-  // is being typed, so narrowing them by keystrokes would leave an empty list
-  // for anything the last answer did not happen to suggest.
-  const shouldShowComposerSuggestions =
-    !isLoading &&
-    !isActionMenuOpen &&
-    !input.trim() &&
-    latestMessage?.role === 'assistant' &&
-    !latestMessage.isError &&
-    (latestMessage.suggestedQuestions?.length || 0) > 0;
 
   return (
     <div className="relative flex min-h-dvh flex-col overflow-x-clip font-sans">
@@ -1262,7 +1251,7 @@ export default function Home() {
         </div>
       </header>
 
-      <main className="flex-1 overflow-auto pb-52 pt-6 sm:pb-40">
+      <main className="flex-1 overflow-auto pb-32 pt-6 sm:pb-40">
         <div className="container max-w-2xl mx-auto px-4 flex flex-col gap-6">
           {messages.length === 0 && (
             <div className="flex flex-col gap-8 pt-8">
@@ -1357,7 +1346,7 @@ export default function Home() {
               >
                 {m.role === 'user' ? (
                   <div className="max-w-[80%]">
-                    <div className="px-4 py-2.5 rounded-2xl bg-muted/80 text-foreground text-[15px]">
+                    <div className="px-4 py-2.5 rounded-2xl bg-muted/80 text-foreground text-[15px] whitespace-pre-wrap [overflow-wrap:anywhere]">
                       {m.content}
                     </div>
                   </div>
@@ -1414,7 +1403,7 @@ export default function Home() {
                       <div className="space-y-4">
                         <div
                           aria-busy={m.isTyping || undefined}
-                          className={`text-[15px] leading-7 text-foreground prose prose-invert prose-sm max-w-none ${
+                          className={`text-[15px] leading-7 text-foreground prose prose-invert prose-sm max-w-none [overflow-wrap:anywhere] ${
                             m.isTyping ? 'rocky-answer-typing' : ''
                           }`}
                         >
@@ -1423,12 +1412,12 @@ export default function Home() {
                         {!m.isTyping &&
                           ((m.uiActions?.length || 0) > 0 ||
                             cleanCitations(m.citations).length > 0) && (
-                            <div className="flex max-w-full items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+                            <div className="flex max-w-full flex-wrap items-center gap-2">
                               {m.uiActions?.map((action, actionIndex) => (
                                 <button
                                   key={`${action.type}-${actionIndex}`}
                                   onClick={() => runUiAction(action)}
-                                  className="inline-flex min-h-7 shrink-0 items-center rounded-full border border-violet-400/30 bg-violet-400/10 px-3 py-1 text-xs font-semibold text-violet-300 transition-colors hover:border-violet-400/50 hover:bg-violet-400/20 focus:outline-none focus:ring-2 focus:ring-violet-400/50"
+                                  className="inline-flex min-h-9 items-center rounded-full border border-violet-400/30 bg-violet-400/10 px-3 py-1 text-xs font-semibold text-violet-300 transition-colors hover:border-violet-400/50 hover:bg-violet-400/20 focus:outline-none focus:ring-2 focus:ring-violet-400/50"
                                 >
                                   {actionLabel(action.type)}
                                 </button>
@@ -1437,19 +1426,49 @@ export default function Home() {
                             </div>
                           )}
                         {!m.isTyping && (
-                          <div className="flex items-center gap-4 text-muted-foreground flex-wrap">
+                          <div className="-ml-3 flex flex-wrap items-center gap-1 text-muted-foreground">
                             <button
                               type="button"
                               aria-label="Copy answer"
                               data-no-haptic="true"
                               onClick={() => handleCopyContent(m.content)}
-                              className="hover:text-foreground transition-colors"
+                              className="inline-flex h-11 w-11 items-center justify-center rounded-full transition-colors hover:bg-white/5 hover:text-foreground"
                             >
                               <Copy className="h-4 w-4" />
                             </button>
                             <FeedbackButtons requestId={m.requestId} />
                           </div>
                         )}
+                        {/*
+                          A list, not a row of chips: each is a whole question
+                          and wants its own line. They sit under the answer they
+                          follow rather than in the fixed composer, where a
+                          sideways row hid two of three off a phone's edge and a
+                          stacked one would have covered the answer itself.
+                          Choosing one sends it.
+                        */}
+                        {index === messages.length - 1 &&
+                          !isLoading &&
+                          !m.isTyping &&
+                          (m.suggestedQuestions?.length || 0) > 0 && (
+                            <div
+                              role="group"
+                              aria-label="Suggested follow-up questions"
+                              className="flex flex-col items-start gap-2"
+                            >
+                              {m.suggestedQuestions?.map((question) => (
+                                <button
+                                  key={question}
+                                  type="button"
+                                  onClick={() => handleSuggestionClick(question)}
+                                  className="inline-flex min-h-11 max-w-full items-center gap-2 rounded-2xl border border-border/70 bg-background px-3 py-2 text-left text-sm text-muted-foreground transition-colors hover:border-[#f4a8b5]/60 hover:bg-muted hover:text-foreground"
+                                >
+                                  <Sparkles aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+                                  <span className="min-w-0">{question}</span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
                       </div>
                     )}
                   </div>
@@ -1664,44 +1683,6 @@ export default function Home() {
       <div
         className={`fixed inset-x-0 bottom-0 z-[70] bg-gradient-to-t from-background via-background to-transparent px-2 pb-4 pt-6 sm:px-4 ${isSplashDismissed ? 'animate-hero-input' : 'opacity-0'}`}
       >
-        {/*
-          A list, not a row of chips. A chip row scrolls sideways, so the third
-          suggestion is off the edge of a phone and the longer ones truncate
-          mid-question — and a truncated question cannot be judged, only
-          guessed at. These are whole sentences and each wants a line, which is
-          why an address bar stacks its suggestions rather than lining them up.
-          The chevron says what the row does: choosing one sends it.
-        */}
-        {composerSuggestedQuestions.length > 0 && (
-          <div
-            aria-hidden={!shouldShowComposerSuggestions}
-            className={`mx-auto max-w-2xl origin-bottom transition-[max-height,margin,opacity,transform] duration-300 ease-out motion-reduce:transition-none ${
-              shouldShowComposerSuggestions
-                ? 'mb-2 max-h-14 translate-y-0 scale-100 opacity-100'
-                : 'pointer-events-none mb-0 max-h-0 translate-y-2 scale-[0.98] overflow-hidden opacity-0'
-            }`}
-          >
-            <div
-              role="group"
-              aria-label="Suggested follow-up questions"
-              className="scrollbar-none flex max-w-full gap-2 overflow-x-auto px-1 py-0.5"
-            >
-              {composerSuggestedQuestions.map((question) => (
-                <button
-                  key={question}
-                  type="button"
-                  disabled={!shouldShowComposerSuggestions}
-                  onClick={() => handleSuggestionClick(question)}
-                  className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-2xl border border-border/70 bg-background/95 px-3 py-2 text-left text-sm text-muted-foreground shadow-sm backdrop-blur-xl transition-colors hover:border-[#f4a8b5]/60 hover:bg-muted hover:text-foreground disabled:cursor-default"
-                >
-                  <Sparkles aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
-                  {question}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
         <div className="mx-auto flex max-w-2xl min-w-0 items-center gap-2 sm:gap-3">
           <button
               id="action-menu-trigger"
@@ -1739,7 +1720,7 @@ export default function Home() {
                   data-no-haptic="true"
                   type="button"
                   onClick={stopGeneration}
-                  className="mr-3 h-9 w-9 flex items-center justify-center rounded-xl bg-red-600 text-white"
+                  className="mr-2 h-10 w-10 flex items-center justify-center rounded-xl bg-red-600 text-white"
                 >
                   <Square className="h-3.5 w-3.5 fill-current" />
                 </button>
@@ -1749,14 +1730,14 @@ export default function Home() {
                   data-haptic="medium"
                   type="submit"
                   disabled={!input?.trim()}
-                  className="mr-3 h-9 w-9 flex items-center justify-center rounded-xl bg-[#862633] text-white disabled:opacity-30"
+                  className="mr-2 h-10 w-10 flex items-center justify-center rounded-xl bg-[#862633] text-white disabled:opacity-30"
                 >
                   <Send className="h-4 w-4" />
                 </button>
               )}
             </form>
         </div>
-        <div className="mx-auto mt-1 max-w-2xl px-1">
+        <div className="mx-auto mt-1 hidden max-w-2xl px-1 sm:block">
           <p className="rounded-xl bg-background/90 px-3 py-1 text-center text-xs leading-4 text-muted-foreground shadow-sm">
             Built for Roadrunners. Ask, explore, and verify.
           </p>
@@ -1839,7 +1820,7 @@ function SourceLinks({ citations }: { citations?: Citation[] }) {
           target="_blank"
           rel="noopener noreferrer"
           title={citation.snippet || citation.title}
-          className="group inline-flex min-h-7 max-w-full shrink-0 items-center gap-1.5 rounded-full border border-rose-500/30 bg-rose-500/10 px-3 py-1 text-xs font-semibold text-rose-300 transition-colors hover:border-rose-400/50 hover:bg-rose-500/20 focus:outline-none focus:ring-2 focus:ring-rose-400/50"
+          className="group inline-flex min-h-9 max-w-full items-center gap-1.5 rounded-full border border-rose-500/30 bg-rose-500/10 px-3 py-1 text-xs font-semibold text-rose-300 transition-colors hover:border-rose-400/50 hover:bg-rose-500/20 focus:outline-none focus:ring-2 focus:ring-rose-400/50"
         >
           <ExternalLink
             aria-hidden="true"
@@ -1954,7 +1935,7 @@ function FeedbackButtons({ requestId }: { requestId?: string }) {
             onClick={() => {
               handleVote('down', r.id);
             }}
-            className="rounded-md bg-neutral-900/90 border border-white/10 px-2 py-0.5 text-[11px] text-neutral-300 hover:bg-neutral-800 hover:text-white hover:border-white/20 transition-all shadow-xs"
+            className="inline-flex min-h-9 items-center rounded-lg bg-neutral-900/90 border border-white/10 px-3 text-xs text-neutral-300 hover:bg-neutral-800 hover:text-white hover:border-white/20 transition-all shadow-xs"
           >
             {r.label}
           </button>
@@ -1965,17 +1946,18 @@ function FeedbackButtons({ requestId }: { requestId?: string }) {
             setSelectedReason('other');
             setStatus('comment');
           }}
-          className="rounded-md bg-neutral-900/90 border border-white/10 px-2 py-0.5 text-[11px] text-sky-400 hover:bg-sky-500/10 hover:text-sky-300 hover:border-sky-500/30 transition-all shadow-xs"
+          className="inline-flex min-h-9 items-center rounded-lg bg-neutral-900/90 border border-white/10 px-3 text-xs text-sky-400 hover:bg-sky-500/10 hover:text-sky-300 hover:border-sky-500/30 transition-all shadow-xs"
         >
           Other…
         </button>
         <button
           type="button"
           onClick={() => setStatus('saved')}
-          className="text-[11px] text-neutral-500 hover:text-neutral-300 p-0.5 ml-0.5"
+          aria-label="Skip the reason"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-neutral-500 hover:text-neutral-300"
           title="Skip"
         >
-          <X className="h-3 w-3" />
+          <X aria-hidden="true" className="h-3.5 w-3.5" />
         </button>
       </div>
     );
@@ -1993,13 +1975,15 @@ function FeedbackButtons({ requestId }: { requestId?: string }) {
           value={commentText}
           onChange={(e) => setCommentText(e.target.value)}
           placeholder={placeholder}
-          className="text-xs bg-neutral-900/90 border border-white/15 rounded-md px-2.5 py-1 text-white placeholder:text-neutral-500 focus:outline-none focus:border-sky-500 w-48 sm:w-64 transition-colors"
+          aria-label="What went wrong with this answer"
+          maxLength={1000}
+          className="min-h-10 w-full text-base sm:text-xs bg-neutral-900/90 border border-white/15 rounded-lg px-3 py-1.5 text-white placeholder:text-neutral-500 focus:outline-none focus:border-sky-500 sm:w-64 transition-colors"
           autoFocus
         />
         <button
           type="submit"
           disabled={!isTextValid}
-          className="rounded-md bg-sky-500 text-black hover:bg-sky-400 disabled:opacity-40 disabled:hover:bg-sky-500 disabled:cursor-not-allowed px-2.5 py-1 text-xs font-semibold transition-colors shadow-sm cursor-pointer"
+          className="min-h-10 rounded-lg bg-sky-500 text-black hover:bg-sky-400 disabled:opacity-40 disabled:hover:bg-sky-500 disabled:cursor-not-allowed px-4 text-sm font-semibold transition-colors shadow-sm cursor-pointer"
         >
           Send
         </button>
@@ -2025,7 +2009,7 @@ function FeedbackButtons({ requestId }: { requestId?: string }) {
   }
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-1">
       <button
         type="button"
         aria-label="Helpful answer"
@@ -2033,10 +2017,10 @@ function FeedbackButtons({ requestId }: { requestId?: string }) {
         data-no-haptic="true"
         disabled={status === 'saving'}
         onClick={() => handleVote('up')}
-        className="p-1 rounded-md text-muted-foreground hover:text-emerald-400 hover:bg-white/5 transition-colors disabled:cursor-wait disabled:opacity-50"
+        className="inline-flex h-11 w-11 items-center justify-center rounded-full text-muted-foreground hover:text-emerald-400 hover:bg-white/5 transition-colors disabled:cursor-wait disabled:opacity-50"
         title="Helpful answer (👍)"
       >
-        <ThumbsUp aria-hidden="true" className="h-3.5 w-3.5" />
+        <ThumbsUp aria-hidden="true" className="h-4 w-4" />
       </button>
       <button
         type="button"
@@ -2045,10 +2029,10 @@ function FeedbackButtons({ requestId }: { requestId?: string }) {
         data-no-haptic="true"
         disabled={status === 'saving'}
         onClick={() => handleVote('down')}
-        className="p-1 rounded-md text-muted-foreground hover:text-rose-400 hover:bg-white/5 transition-colors disabled:cursor-wait disabled:opacity-50"
+        className="inline-flex h-11 w-11 items-center justify-center rounded-full text-muted-foreground hover:text-rose-400 hover:bg-white/5 transition-colors disabled:cursor-wait disabled:opacity-50"
         title="Needs improvement (👎)"
       >
-        <ThumbsDown aria-hidden="true" className="h-3.5 w-3.5" />
+        <ThumbsDown aria-hidden="true" className="h-4 w-4" />
       </button>
       {status === 'saving' && (
         <span role="status" className="text-xs text-muted-foreground">
