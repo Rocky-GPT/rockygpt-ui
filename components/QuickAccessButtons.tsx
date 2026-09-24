@@ -553,7 +553,7 @@ export function DirectoryModal({ isOpen, onClose }: ModalProps) {
     <div className="absolute inset-0" onClick={onClose} />
     <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Campus directory" tabIndex={-1} className={MODAL_PANEL}>
       <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-background">
-        <div><h2 className="text-xl font-bold">Directory</h2>
+        <div><h2 className="text-xl font-bold">Phone Directory</h2>
           <p className="text-xs text-muted-foreground">{loadingDirectory ? 'Loading contacts…' : `${directory?.allContacts.length ?? 0} campus contacts`}</p></div>
         <button onClick={onClose} className="p-2 hover:bg-muted rounded-full" aria-label="Close"><X className="w-5 h-5" /></button>
       </div>
@@ -1198,7 +1198,7 @@ export function ClubsModal({ isOpen, onClose }: ModalProps) {
               <Users className="w-5 h-5 text-blue-500" />
             </div>
             <div>
-              <h2 className="text-xl font-bold leading-none mb-1">All Clubs & Orgs</h2>
+              <h2 className="text-xl font-bold leading-none mb-1">Clubs & Orgs</h2>
               <p className="text-xs text-muted-foreground font-medium">
                 {loadFailed ? 'Unavailable right now' : `${filteredClubs.length} organizations`}
               </p>
@@ -1428,14 +1428,18 @@ export function CalendarModal({ isOpen, onClose }: ModalProps) {
 
   if (!isOpen) return null;
 
-  const currentTabName = calendarMode === 'academics' ? activeSemester : activeHousingSemester;
+  // The Housing view exists only when the release has housing dates. Without
+  // them, choosing it hid every tab, including the way back to Academics.
+  const hasHousing = Array.isArray(semesters) && semesters.some(s => s.name.startsWith('Housing:'));
+  const mode = hasHousing ? calendarMode : 'academics';
+  const currentTabName = mode === 'academics' ? activeSemester : activeHousingSemester;
   const activeEvents = Array.isArray(semesters)
     ? (semesters.find(s => s.name === currentTabName)?.events || [])
     : [];
   
   const displayedSemesters = Array.isArray(semesters)
     ? semesters.filter(s => 
-        calendarMode === 'housing' ? s.name.startsWith('Housing:') : !s.name.startsWith('Housing:')
+        mode === 'housing' ? s.name.startsWith('Housing:') : !s.name.startsWith('Housing:')
       )
     : [];
 
@@ -1446,7 +1450,7 @@ export function CalendarModal({ isOpen, onClose }: ModalProps) {
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        aria-label="Important dates"
+        aria-label="Academic calendar"
         tabIndex={-1}
         className={MODAL_PANEL}>
         {/* Header */}
@@ -1456,8 +1460,10 @@ export function CalendarModal({ isOpen, onClose }: ModalProps) {
               <Calendar className="w-5 h-5 text-orange-500" />
             </div>
             <div>
-              <h2 className="text-xl font-bold leading-none mb-1">Important Dates</h2>
-              <p className="text-xs text-muted-foreground font-medium">Academics & Residence Life</p>
+              <h2 className="text-xl font-bold leading-none mb-1">Academic Calendar</h2>
+              <p className="text-xs text-muted-foreground font-medium">
+                {hasHousing ? 'Academics & Residence Life' : 'Key dates, finals & breaks'}
+              </p>
             </div>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-muted rounded-full transition-colors opacity-70 hover:opacity-100" aria-label="Close">
@@ -1468,6 +1474,7 @@ export function CalendarModal({ isOpen, onClose }: ModalProps) {
         {/* Mode & Semester Tabs */}
         {!loading && displayedSemesters.length > 0 && (
           <div className="px-6 py-3 border-b border-border bg-muted/30 flex flex-col gap-3">
+            {hasHousing && (
             <div className="flex p-1 bg-background/50 border border-border rounded-xl">
                <button
                  onClick={() => setCalendarMode('academics')}
@@ -1490,6 +1497,7 @@ export function CalendarModal({ isOpen, onClose }: ModalProps) {
                  Housing & Res Life
                </button>
             </div>
+            )}
             
             <div className="flex gap-2 overflow-x-auto scrollbar-none pb-1">
               {displayedSemesters.map((semester, sIdx) => {
@@ -1500,7 +1508,7 @@ export function CalendarModal({ isOpen, onClose }: ModalProps) {
                   <button
                     key={`${semester.name}-${sIdx}`}
                     onClick={() => {
-                       if (calendarMode === 'academics') setActiveSemester(semester.name);
+                       if (mode === 'academics') setActiveSemester(semester.name);
                        else setActiveHousingSemester(semester.name);
                     }}
                     className={`px-4 py-2 text-sm font-semibold rounded-full whitespace-nowrap transition-colors ${

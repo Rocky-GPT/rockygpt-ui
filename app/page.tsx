@@ -389,7 +389,7 @@ const AnswerMarkdown = memo(function AnswerMarkdown({
           return (
             <a
               href={telHref}
-              className="inline cursor-pointer font-medium text-emerald-400 underline decoration-1 decoration-emerald-500/40 underline-offset-4 transition-colors hover:text-emerald-300 hover:decoration-emerald-300 active:opacity-70"
+              className="inline cursor-pointer font-medium text-rose-400 underline decoration-1 decoration-rose-500/40 underline-offset-4 transition-colors hover:text-rose-300 hover:decoration-rose-300 active:opacity-70"
               title={`Call ${textContent}`}
               {...domProps(props)}
             >
@@ -401,7 +401,7 @@ const AnswerMarkdown = memo(function AnswerMarkdown({
           return (
             <a
               href={href}
-              className="inline cursor-pointer font-medium text-violet-400 underline decoration-1 decoration-violet-500/40 underline-offset-4 transition-colors hover:text-violet-300 hover:decoration-violet-300 active:opacity-70"
+              className="inline cursor-pointer font-medium text-rose-400 underline decoration-1 decoration-rose-500/40 underline-offset-4 transition-colors hover:text-rose-300 hover:decoration-rose-300 active:opacity-70"
               title={`Email ${href.replace('mailto:', '')}`}
               {...domProps(props)}
             >
@@ -780,6 +780,30 @@ export default function Home() {
     setIsWelcomeModalOpen(true);
   }, [isSplashDismissed, shouldOpenWelcomeOnLoad]);
 
+  // "What's on the menu today?" was answered with a question back (which hall,
+  // which meal?), and "When is the next shuttle?" named no route. The first
+  // prompt asks about the meal Birch is serving at this hour on campus; it is
+  // set after mount so the server render and the first client render agree.
+  const [mealPrompt, setMealPrompt] = useState("What's for lunch at Birch today?");
+  useEffect(() => {
+    const hour = Number(
+      new Intl.DateTimeFormat('en-US', {
+        hour: 'numeric',
+        hourCycle: 'h23',
+        timeZone: 'America/New_York',
+      }).format(new Date())
+    );
+    setMealPrompt(
+      hour < 10
+        ? "What's for breakfast at Birch today?"
+        : hour < 14
+          ? "What's for lunch at Birch today?"
+          : hour < 20
+            ? "What's for dinner at Birch tonight?"
+            : "What's for lunch at Birch tomorrow?"
+    );
+  }, []);
+
   // Home-screen shortcuts in manifest.json open a panel directly. They used to
   // point at /?q=dining, which nothing read, so they just opened the home page.
   useEffect(() => {
@@ -815,9 +839,9 @@ export default function Home() {
       setIsActionMenuClosing(false);
       actionMenuTriggerRef.current?.focus({ preventScroll: true });
       callback?.();
-      // 420ms card animation + 11 * 35ms stagger = 805ms, matching the
-      // entrance wave exactly.
-    }, 810);
+      // Leaving should be quicker than arriving: the reversed 800ms wave made
+      // every dismissal wait for thirteen cards to fall away in turn.
+    }, 180);
   }, [isActionMenuClosing]);
 
   // Picking an item dismisses the menu instantly instead of playing the exit
@@ -1361,8 +1385,8 @@ export default function Home() {
 
               <div className="space-y-3">
                 {[
-                  { q: "What's on the menu today?", color: 'bg-purple-500' },
-                  { q: 'When is the next shuttle?', color: 'bg-blue-500' },
+                  { q: mealPrompt, color: 'bg-purple-500' },
+                  { q: 'When does the Roadrunner Express leave campus today?', color: 'bg-blue-500' },
                 ].map(({ q, color }, index) => (
                   <button
                     key={q}
@@ -1385,10 +1409,10 @@ export default function Home() {
                     label: 'Print Locations',
                     action: () => setIsPrintModalOpen(true),
                   },
-                  { icon: Users, label: 'Student Orgs', action: () => setIsClubsModalOpen(true) },
+                  { icon: Users, label: 'Clubs & Orgs', action: () => setIsClubsModalOpen(true) },
                   {
                     icon: Calendar,
-                    label: 'Campus Event',
+                    label: 'Campus Events',
                     action: () => setIsEventsModalOpen(true),
                   },
                   {
@@ -1511,8 +1535,9 @@ export default function Home() {
                                 <button
                                   key={`${action.type}-${actionIndex}`}
                                   onClick={() => runUiAction(action)}
-                                  className="inline-flex min-h-9 items-center rounded-full border border-violet-400/30 bg-violet-400/10 px-3 py-1 text-xs font-semibold text-violet-300 transition-colors hover:border-violet-400/50 hover:bg-violet-400/20 focus:outline-none focus:ring-2 focus:ring-violet-400/50"
+                                  className="group inline-flex min-h-9 items-center gap-1.5 rounded-full border border-rose-500/30 bg-rose-500/10 px-3 py-1 text-xs font-semibold text-rose-300 transition-colors hover:border-rose-400/50 hover:bg-rose-500/20 focus:outline-none focus:ring-2 focus:ring-rose-400/50"
                                 >
+                                  <ChevronRight aria-hidden="true" className="h-3 w-3 shrink-0" />
                                   {actionLabel(action.type)}
                                 </button>
                               ))}
@@ -1530,7 +1555,7 @@ export default function Home() {
                             >
                               <Copy className="h-4 w-4" />
                             </button>
-                            <FeedbackButtons requestId={m.requestId} />
+                            <FeedbackButtons requestId={m.requestId} question={m.question} answer={m.content} />
                           </div>
                         )}
                         {/*
@@ -1608,7 +1633,7 @@ export default function Home() {
             style={{
               // Mirrors the entrance: the backdrop fades in first, so on the
               // way out it fades last — over the final 200ms of the wave.
-              transitionDelay: isActionMenuClosing ? '605ms' : '0ms',
+              transitionDelay: '0ms',
             }}
             onClick={() => closeCampusActions()}
           />
@@ -1617,7 +1642,7 @@ export default function Home() {
             ref={actionMenuRef}
             role="menu"
             aria-label="Campus actions"
-            className="relative w-full max-w-2xl mx-auto pointer-events-auto overflow-hidden flex flex-col h-full animate-in fade-in duration-200"
+            className={`relative w-full max-w-2xl mx-auto pointer-events-auto overflow-hidden flex flex-col h-full transition-opacity duration-150 ${isActionMenuClosing ? 'opacity-0' : 'opacity-100'}`}
           >
             {/* List Body (Floating Solid Action Cards with Visible Gaps) */}
             <div className="flex-1 overflow-y-auto px-1 py-1 scrollbar-none">
@@ -1632,8 +1657,8 @@ export default function Home() {
                   },
                   {
                     icon: Utensils,
-                    label: 'Dining',
-                    desc: 'Menus, hours & nutrition',
+                    label: 'Birch Menu',
+                    desc: 'Menus & dining hours',
                     action: () => setIsMenuOpen(true),
                     color: 'text-[#f4a8b5] bg-[#4d161d]/80 border-[#8E0A26]/40',
                   },
@@ -1667,8 +1692,8 @@ export default function Home() {
                   },
                   {
                     icon: Users,
-                    label: 'Student Orgs',
-                    desc: '100+ Archway clubs',
+                    label: 'Clubs & Orgs',
+                    desc: 'Archway clubs & organizations',
                     action: () => setIsClubsModalOpen(true),
                     color: 'text-[#f4a8b5] bg-[#4d161d]/80 border-[#8E0A26]/40',
                   },
@@ -1681,7 +1706,7 @@ export default function Home() {
                   },
                   {
                     icon: GraduationCap,
-                    label: 'Majors & Courses',
+                    label: 'Majors & Programs',
                     desc: 'Degree programs & minors',
                     action: () => setIsMajorsModalOpen(true),
                     color: 'text-[#f4a8b5] bg-[#4d161d]/80 border-[#8E0A26]/40',
@@ -1747,22 +1772,16 @@ export default function Home() {
                     role="menuitem"
                     aria-label={item.label}
                     style={
-                      // The exit is the entrance run backwards: the card that
-                      // popped in last is the first to leave, so the stagger
-                      // order flips along with the keyframes.
+                      // Closing fades the whole menu at once; only the entrance
+                      // staggers, bottom card first.
                       isActionMenuClosing
-                        ? {
-                            animationDelay: `${idx * 35}ms`,
-                            pointerEvents: 'none',
-                          }
-                        : {
-                            animationDelay: `${(arr.length - 1 - idx) * 35}ms`,
-                          }
+                        ? { pointerEvents: 'none' }
+                        : { animationDelay: `${(arr.length - 1 - idx) * 35}ms` }
                     }
                     onClick={() => {
                       selectCampusAction(() => item.action());
                     }}
-                    className={`${isActionMenuClosing ? 'animate-action-card-exit' : 'animate-action-card'} flex items-center justify-between gap-3 p-3.5 sm:p-4 rounded-2xl bg-[#1c1c20] hover:bg-[#28282e] active:scale-[0.98] border border-white/10 hover:border-white/20 text-left transition-[background-color,border-color,box-shadow] duration-200 hover:scale-[1.008] shadow-md group cursor-pointer`}
+                    className={`${isActionMenuClosing ? '' : 'animate-action-card'} flex items-center justify-between gap-3 p-3.5 sm:p-4 rounded-2xl bg-[#1c1c20] hover:bg-[#28282e] active:scale-[0.98] border border-white/10 hover:border-white/20 text-left transition-[background-color,border-color,box-shadow] duration-200 hover:scale-[1.008] shadow-md group cursor-pointer`}
                   >
                     <div className="flex items-center gap-3 min-w-0 flex-1">
                       <div className={`p-2.5 rounded-xl border ${item.color} shrink-0 transition-transform duration-200 group-hover:scale-105`}>
@@ -2050,7 +2069,21 @@ function actionLabel(type: UiAction['type']): string {
   return labels[type];
 }
 
-function FeedbackButtons({ requestId }: { requestId?: string }) {
+// The Brain keeps no student text with a turn, so a rating that arrived with
+// only its request ID was stored against "N/A": nobody could tell which answer
+// was wrong. The rated question and answer travel with the rating.
+function FeedbackButtons({
+  requestId,
+  question,
+  answer,
+}: {
+  requestId?: string;
+  question?: string;
+  answer?: string;
+}) {
+  // Try again resends the whole vote. Resending only the rating dropped the
+  // reason and comment the student had already given.
+  const lastVoteRef = useRef<{ rating: 'up' | 'down'; category?: string; comments?: string } | null>(null);
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'reason' | 'comment' | 'error'>('idle');
   const [selectedRating, setSelectedRating] = useState<'up' | 'down' | null>(null);
   const [selectedReason, setSelectedReason] = useState<string | null>(null);
@@ -2065,6 +2098,7 @@ function FeedbackButtons({ requestId }: { requestId?: string }) {
   };
 
   const handleVote = async (rating: 'up' | 'down', category?: string, comments?: string) => {
+    lastVoteRef.current = { rating, category, comments };
     setSelectedRating(rating);
     if (rating === 'up') {
       setStatus('saving');
@@ -2079,6 +2113,8 @@ function FeedbackButtons({ requestId }: { requestId?: string }) {
           rating: rating === 'up' ? 1 : -1,
           category: category || null,
           comments: comments || null,
+          question: question || null,
+          answer: answer || null,
         }),
       });
       const payload = (await response.json().catch(() => ({}))) as { success?: boolean };
@@ -2203,7 +2239,10 @@ function FeedbackButtons({ requestId }: { requestId?: string }) {
         <button
           type="button"
           data-no-haptic="true"
-          onClick={() => selectedRating && handleVote(selectedRating)}
+          onClick={() => {
+            const vote = lastVoteRef.current;
+            if (vote) handleVote(vote.rating, vote.category, vote.comments);
+          }}
           className="rounded-lg border border-amber-300/50 px-2 py-1 font-semibold hover:bg-amber-300/10"
         >
           Try again

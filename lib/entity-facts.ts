@@ -6,6 +6,8 @@ export interface DirectoryEntry {
   kind: string;
   bucket: 'Offices' | 'Staff & Faculty' | 'Others';
   searchText: string;
+  /** What a person is part of (their school or office), when the registry links one. */
+  context?: string;
 }
 export interface DirectoryIndex {
   dataset_version: string;
@@ -46,7 +48,8 @@ export function isDirectoryIndex(value: unknown): value is DirectoryIndex {
     && Array.isArray(value.allContacts) && value.allContacts.every(entry => object(entry)
       && typeof entry.id === 'string' && entry.canonical_entity_id === entry.id
       && typeof entry.name === 'string' && typeof entry.kind === 'string'
-      && typeof entry.searchText === 'string' && ['Offices', 'Staff & Faculty', 'Others'].includes(String(entry.bucket)));
+      && typeof entry.searchText === 'string' && ['Offices', 'Staff & Faculty', 'Others'].includes(String(entry.bucket))
+      && (entry.context === undefined || typeof entry.context === 'string'));
 }
 
 export function isCanonicalFacts(value: unknown): value is CanonicalFacts {

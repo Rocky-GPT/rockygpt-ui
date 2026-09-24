@@ -45,9 +45,10 @@ test('directory selects one entity, loads details lazily, and retains evidence',
   await expect(modal.getByRole('link', { name: 'rabzug@ramapo.edu' })).toHaveCount(1);
   await expect(modal.locator('a[href^="tel:"]')).toHaveCount(1);
   await expect(modal.getByText('Ext. 1234', { exact: true })).toBeVisible();
-  await modal.getByText('2 supporting evidence records', { exact: true }).click();
+  // Sources are listed once per card; each value links to its own by number.
   await expect(modal.getByText('Some records are derived from the same published source.')).toBeVisible();
   await expect(modal.getByRole('link', { name: /^Source 1:/ })).toHaveCount(1);
+  await expect(modal.getByRole('link', { name: 'Source 1', exact: true }).first()).toBeVisible();
   expect(calls).toBe(1);
 });
 
