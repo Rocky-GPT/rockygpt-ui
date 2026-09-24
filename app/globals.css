@@ -1,13 +1,19 @@
 @import "tailwindcss";
 
+/* The app is dark only. Tailwind's default `dark:` variant follows the OS
+   setting, so on a phone in light mode every `dark:` color fell back to its
+   light-mode shade on this dark UI (the emergency number dropped to about
+   3.4:1). Key the variant to the class the root layout always sets. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
-  /* Tailwind v4 ships no `xs`, so every `xs:` utility in the app silently
-     never matched — the labels they guard were invisible at every width. */
-  --breakpoint-xs: 30rem;
+  /* Tailwind v4 ships no `xs`. 360px is the narrowest width where the header
+     fits its logo plus both labelled buttons; below it they show icons only. */
+  --breakpoint-xs: 22.5rem;
 
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace;
-  
+
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-primary: var(--primary);
@@ -15,10 +21,18 @@
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
   --color-border: var(--border);
+  /* Used by the onboarding tiles and the map's error banner. Without these
+     tokens `bg-card` and `bg-destructive` compiled to nothing at all. */
+  --color-card: var(--card);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
 }
 
 @layer base {
   :root {
+    /* Native scrollbars, date pickers and form controls draw dark too. */
+    color-scheme: dark;
+
     /* Ramapo Brand Palette */
     --ramapo-maroon: #8E0A26;
     --ramapo-black: #231F20;
@@ -36,18 +50,14 @@
     --muted-foreground: #a1a1aa;
     
     --border: #3a3a3a;
-    
+
+    --card: #222222;
+    --destructive: #dc2626;
+    --destructive-foreground: #ffffff;
+
     /* Accent colors for suggestions */
     --accent-purple: #7c3aed;
     --accent-green: #10b981;
-  }
-
-  .light {
-    --background: var(--ramapo-white);
-    --foreground: var(--ramapo-black);
-    --muted: #f4f4f5;
-    --muted-foreground: var(--ramapo-gray);
-    --border: #e4e4e7;
   }
 }
 
