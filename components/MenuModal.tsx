@@ -926,7 +926,7 @@ export function MenuModal({ isOpen, onClose, defaultMeal }: MenuModalProps) {
                                           {station.name}
                                       </h3>
                                       <span className="text-[10px] font-mono text-muted-foreground bg-background px-2 py-0.5 rounded-full border border-border">
-                                          {station.items.length} items
+                                          {station.items.length} {station.items.length === 1 ? 'item' : 'items'}
                                       </span>
                                   </div>
                                   {/* Items List */}

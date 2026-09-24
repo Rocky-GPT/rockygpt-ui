@@ -122,6 +122,36 @@ function filterLocations(locations: MapLocation[], query: string): MapLocation[]
 }
 
 /**
+ * The place an answer's link names, or nothing.
+ *
+ * Search ranks partial matches, which is right for a person typing and wrong
+ * for a link: "Birch Tree Inn" shares one word with "Birch Mansion", so the
+ * best-ranked guess put the pin on the wrong building. A link resolves only by
+ * key, by a room code's building prefix ("D-224" is in Building D), by an
+ * exact name or alias, or when every word of it matches one place.
+ */
+function resolveLinkedPlace(locations: MapLocation[], key: string): MapLocation | undefined {
+  const exact = locations.find((location) => location.key === key);
+  if (exact) return exact;
+  const roomPrefix = /^([A-Z]{1,3})-\d/.exec(key.trim().toUpperCase())?.[1];
+  if (roomPrefix) {
+    const building = locations.find((location) => location.roomPrefixes?.includes(roomPrefix));
+    if (building) return building;
+  }
+  const wanted = normalize(key);
+  const named = locations.find(
+    (location) =>
+      normalize(location.name) === wanted ||
+      location.aliases.some((alias) => normalize(alias) === wanted)
+  );
+  if (named) return named;
+  const tokens = tokenize(key);
+  if (tokens.length === 0) return undefined;
+  const complete = locations.filter((location) => tokenHits(tokens, location) === tokens.length);
+  return complete.length === 1 ? complete[0] : undefined;
+}
+
+/**
  * Close enough to see the building you asked for.
  *
  * A marker on its own drops the pin but keeps the campus-wide framing, so
@@ -265,6 +295,7 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
   // only adds search and pins, so its failure narrows the modal instead of
   // hiding it: a modal that rendered nothing still locked the page's scroll.
   const [placesState, setPlacesState] = useState<'loading' | 'ready' | 'unavailable'>('loading');
+  const [unresolvedKey, setUnresolvedKey] = useState<string | null>(null);
 
   const locationByKey = useMemo(
     () => new Map(locations.map((location) => [location.key, location])),
@@ -321,11 +352,14 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = 'hidden';
-      if (initialLocationKey) {
-        const resolved = locationByKey.get(initialLocationKey) ?? filterLocations(locations, initialLocationKey)[0];
+      if (initialLocationKey && locations.length > 0) {
+        const resolved = resolveLinkedPlace(locations, initialLocationKey);
         if (resolved) {
           setSelectedKey(resolved.key);
           setSelectedSummaryKey(resolved.key);
+          setUnresolvedKey(null);
+        } else {
+          setUnresolvedKey(initialLocationKey);
         }
       }
     } else {
@@ -715,6 +749,12 @@ export function MapModal({ isOpen, onClose, initialLocationKey }: MapModalProps)
                   <p role="status" className="mt-2 text-xs text-muted-foreground">
                     <span className="text-foreground">{selectedSummaryLocation?.name}</span> is not
                     marked on Ramapo&rsquo;s map, so the campus view is shown instead.
+                  </p>
+                )}
+                {placesState === 'ready' && unresolvedKey && !selectedSummaryKey && (
+                  <p role="status" className="mt-2 text-xs text-muted-foreground">
+                    <span className="text-foreground">{unresolvedKey}</span> isn&rsquo;t one of the
+                    places on Ramapo&rsquo;s map, so the whole campus is shown.
                   </p>
                 )}
                 {placesState === 'unavailable' && (
