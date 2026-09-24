@@ -721,8 +721,8 @@ export default function Home() {
       } else {
         window.sessionStorage.removeItem('rockygpt_session_messages');
       }
-      // Visitor identity is now a short-lived, HTTP-only server cookie. Remove
-      // the older indefinitely persisted browser value during migration.
+      // RockyGPT no longer keeps a visitor identity. Remove the value older
+      // versions persisted in the browser indefinitely.
       window.localStorage.removeItem(LEGACY_VISITOR_STORAGE_KEY);
       const seen = window.localStorage.getItem('rockygpt_welcome_seen');
       if (!seen) {

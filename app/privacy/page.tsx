@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { ArrowLeft, Database, Download, LockKeyhole, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, Database, Smartphone, ThumbsUp } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,26 +9,26 @@ export const metadata: Metadata = {
   description: 'What RockyGPT stores, how long it is retained, and who processes it.',
 };
 
+// Each statement here was checked against the code that does it (September
+// 2026): the Brain's turn records, its feedback write and redaction, the UI's
+// rate limiter and browser storage. The earlier notice described a retired
+// logger (30-day transcripts, a session ID, a cookie, transcript exports)
+// that no longer exists.
 const facts = [
   {
     icon: Database,
-    title: 'Questions and answers',
-    body: 'RockyGPT stores every valid submitted question for up to 30 days to improve answer quality. When a request succeeds, its answer and structured fact response are stored with it; failed and timed-out requests retain the question. Questions from the same browser-tab session receive the same pseudonymous label. Recognized sensitive patterns—including student numbers, email addresses, phone numbers, payment or Social Security numbers, and secrets—are redacted before storage.',
+    title: 'Your questions and answers',
+    body: 'Each question goes to the RockyGPT service and to the AI model that writes the answer. RockyGPT’s record of a turn holds no question or answer text: only an ID, when it happened, how long it took, which campus data it used, what it cost and whether it succeeded. Requests to the AI provider are sent with storage turned off, though the provider’s own account-level policies still apply.',
   },
   {
-    icon: ShieldCheck,
-    title: 'Crisis and emotional-distress conversations',
-    body: 'These conversations are included in transcript logging and follow the same redaction and 30-day retention rules as other submitted questions.',
+    icon: ThumbsUp,
+    title: 'When you rate an answer',
+    body: 'Rating an answer saves the question you asked, the answer, your rating and any reason or comment, so a wrong answer can be found and fixed. Before anything is saved, email addresses, personal phone numbers, student ID numbers, Social Security numbers and card numbers are removed from your question and comment. There is no automatic deletion yet; email the address below to have your feedback removed.',
   },
   {
-    icon: LockKeyhole,
-    title: 'Operational metrics and feedback',
-    body: 'RockyGPT keeps operational metadata—such as route, timing, dataset version, and failure categories—and submitted ratings or redacted feedback comments for up to 90 days. Operational metrics do not contain the question or answer text.',
-  },
-  {
-    icon: Download,
-    title: 'Transcript exports',
-    body: 'Copying or downloading a transcript is a browser-local action. The exported JSON goes only to your clipboard or device; RockyGPT does not upload or retain a separate server-side copy of the export.',
+    icon: Smartphone,
+    title: 'On your device',
+    body: 'The current conversation is kept in this browser tab so it survives a reload, and it is gone when the tab closes. Your browser also remembers that you have seen the welcome tour and the role you picked, if you picked one. RockyGPT sets no cookies and uses no analytics or advertising trackers.',
   },
 ];
 
@@ -60,14 +60,14 @@ export default function PrivacyPage() {
 
         <section
           aria-labelledby="logging-status"
-          className="mt-10 rounded-2xl border border-emerald-400/35 bg-emerald-400/10 p-5"
+          className="mt-10 rounded-2xl border border-border bg-muted/35 p-5"
         >
           <h2 id="logging-status" className="font-semibold">
-            Transcript logging is enabled
+            RockyGPT does not keep your questions
           </h2>
           <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            Every valid submitted question is logged by the brain service. The 30-day redaction
-            and retention controls below apply. Browser transcript exports are not uploaded.
+            Questions and answers are used to answer you, then dropped. They are saved only when
+            you rate an answer, as described below.
           </p>
         </section>
 
@@ -100,17 +100,20 @@ export default function PrivacyPage() {
             Identifiers and service providers
           </h2>
           <p className="leading-7 text-muted-foreground">
-            RockyGPT creates a random identifier for the current browser-tab session so questions
-            from that session can be reviewed together. The UI also issues a random, HTTP-only
-            browser cookie that expires no later than 30 days after its most recent use. Before
-            these identifiers are retained with chat records, they are converted to keyed hashes;
-            the raw identifiers are not stored in those records.
+            RockyGPT does not identify you. It has no accounts, and nothing it keeps links one
+            question to another or to a person.
           </p>
           <p className="leading-7 text-muted-foreground">
             To limit automated abuse, the UI immediately converts the source network address to a
             keyed digest and keeps only a bounded in-memory request counter for approximately one
             minute. The application does not write the raw network address or that short-lived
             limiter digest to its logs or database.
+          </p>
+          <p className="leading-7 text-muted-foreground">
+            The website runs on Vercel and the answering service on Render. Campus data, turn
+            records and feedback are stored in a Neon Postgres database. Answers are written by an
+            AI model provider, currently OpenAI. The hosting providers keep their own request logs
+            under their own policies.
           </p>
           <p className="leading-7 text-muted-foreground">
             RockyGPT does not have access to your student account, grades, schedule,
@@ -134,7 +137,7 @@ export default function PrivacyPage() {
         </section>
 
         <p className="mt-10 text-xs leading-5 text-muted-foreground">
-          Last updated August 22, 2026. This notice describes the invite-only RockyGPT pilot.
+          Last updated September 24, 2026.
         </p>
       </div>
     </main>
