@@ -11,6 +11,7 @@
 
 import { readChatStream, ChatStreamError } from '@/lib/chat-stream';
 import { memo, useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { Bot, Bus, Calendar, Check, ChevronRight, ChevronUp, Copy, CreditCard, Download, ExternalLink, FileText, GraduationCap, Info, MapPin, Phone, Printer, Send, Shield, Sparkles, Square, SquarePen, ThumbsDown, ThumbsUp, Users, Utensils, X } from 'lucide-react';
 import { MenuModal } from '@/components/MenuModal';
 import { BusModal } from '@/components/BusModal';
@@ -50,6 +51,8 @@ interface ChatMessage {
   isTyping?: boolean;
   brainTrace?: BrainTrace;
   resources?: Citation[];
+  /** Epoch ms before which Try again would only hit the same limit. */
+  retryAt?: number;
 }
 
 interface Citation {
@@ -105,7 +108,8 @@ class ChatRequestFailure extends Error {
     message: string,
     readonly requestId?: string,
     readonly retryable = true,
-    readonly resources: Citation[] = []
+    readonly resources: Citation[] = [],
+    readonly retryAt?: number
   ) {
     super(message);
     this.name = 'ChatRequestFailure';
@@ -128,6 +132,19 @@ function createLocalMessageIdentity(): Pick<ChatMessage, 'id' | 'timestamp'> {
   const timestamp = Date.now();
   localMessageSequence += 1;
   return { id: `${timestamp}-${localMessageSequence}`, timestamp };
+}
+
+/**
+ * The reveal slices finished markdown by characters, so halfway through a
+ * link it read "[Ramapo Dining](https" in raw syntax until its last
+ * character landed. While typing, an unfinished link shows only its label
+ * and an unpaired ** or backtick is held back. The final answer is untouched.
+ */
+function settlePartialMarkdown(partial: string): string {
+  let text = partial.replace(/\[([^\]\n]*)\]\([^)\n]*$/, '$1').replace(/\[([^\]\n]*)$/, '$1');
+  if ((text.match(/\*\*/g) || []).length % 2 === 1) text = text.replace(/\*\*(?![\s\S]*\*\*)/, '');
+  if ((text.match(/`/g) || []).length % 2 === 1) text = text.replace(/`(?![\s\S]*`)/, '');
+  return text;
 }
 
 async function revealAnswer(
@@ -212,6 +229,8 @@ const COMPILED_LOCATIONS_REGEX = new RegExp(
   'gi'
 );
 
+const ROAD_PREFIXES = new Set(['I', 'US', 'NJ', 'NY', 'PA', 'CR', 'SR', 'RT', 'RTE']);
+
 // Helper to auto-link phone numbers, emails, and rooms to smart interactive pills
 function linkSmartChips(text: string): string {
   if (!text) return '';
@@ -222,7 +241,10 @@ function linkSmartChips(text: string): string {
     links.push(markdown);
     return `___SMARTLINK_${idx}___`;
   };
-  let protectedText = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, label, href) => {
+  // Code is quoted text. A ramapo.edu URL in backticks came back as raw
+  // "[url](url)" markdown, so code spans and fences are set aside first.
+  let protectedText = text.replace(/```[\s\S]*?```|`[^`\n]+`/g, (code) => protectLink(code));
+  protectedText = protectedText.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, label, href) => {
     if (/^\(?201\)?[-.\s]?684[-.\s]?\d{4}$/.test(label.trim())) {
       const clean = label.replace(/[^\d]/g, '');
       href = 'tel:' + clean;
@@ -237,35 +259,42 @@ function linkSmartChips(text: string): string {
     (_, email) => protectLink(`[${email}](mailto:${email})`)
   );
 
+  // 5. Auto-link bare ramapo domains (e.g. ramapo.edu, archway.ramapo.edu, ramapo.edu/map).
+  // Runs before rooms and venues so a code inside a path stays part of its URL.
+  // Punctuation inside a path belongs to it ("?utm=", "catalog.pdf"); only
+  // punctuation ending the sentence is left outside the link.
+  protectedText = protectedText.replace(
+    /\b((?:https?:\/\/)?(?:[a-zA-Z0-9-]+\.)*ramapo\.edu(?:\/[^\s<>()[\]*`'"]*)?)/g,
+    (match: string) => {
+      const url = match.replace(/[.,!?;:]+$/, '');
+      const trailing = match.slice(url.length);
+      const cleanHref = url.startsWith('http') ? url : `https://${url}`;
+      return `${protectLink(`[${url}](${cleanHref})`)}${trailing}`;
+    }
+  );
+
   // 2. Auto-link unlinked Ramapo phone numbers ((201) 684-XXXX, 201-684-XXXX, 201.684.XXXX)
   protectedText = protectedText.replace(
     /(?:^|[^\w\d\[])(\(?201\)?[-.\s]?684[-.\s]?\d{4})(?=[^\w\d\]]|$)/g,
     (m, phone) => {
       const clean = phone.replace(/[^\d]/g, '');
       const prefix = m.startsWith(phone) ? '' : m[0];
-      return `${prefix}[${phone}](tel:${clean})`;
+      return `${prefix}${protectLink(`[${phone}](tel:${clean})`)}`;
     }
   );
 
   // 3. Auto-link Room / Office Numbers (e.g. C-102, D-207, SC-202, ASB-333, E-210, B-214)
+  // Road names share the shape: I-287 or US-202 is not a room to put on the map.
   protectedText = protectedText.replace(
     /\b([A-Z]{1,3}-\d{3}[A-Z]?)\b/g,
-    (_, room) => `[${room}](#map:${room})`
+    (match, room: string) =>
+      ROAD_PREFIXES.has(room.split('-')[0]) ? match : protectLink(`[${room}](#map:${room})`)
   );
 
   // 4. Auto-link all Campus Dining Spots, Offices, Buildings, and Key Landmarks into interactive map chips
   protectedText = protectedText.replace(
     COMPILED_LOCATIONS_REGEX,
-    (matched) => `[${matched}](#map:${encodeURIComponent(matched)})`
-  );
-
-  // 5. Auto-link bare ramapo domains (e.g. ramapo.edu, archway.ramapo.edu, ramapo.edu/map)
-  protectedText = protectedText.replace(
-    /\b((?:https?:\/\/)?(?:[a-zA-Z0-9-]+\.)*ramapo\.edu(?:\/[^\s)\].,!?;]*)?)/g,
-    (url) => {
-      const cleanHref = url.startsWith('http') ? url : `https://${url}`;
-      return `[${url}](${cleanHref})`;
-    }
+    (matched) => protectLink(`[${matched}](#map:${encodeURIComponent(matched)})`)
   );
 
   // 6. Natural phrasing transformation for smart chips & links (replaces robotic colon notation)
@@ -294,6 +323,16 @@ function linkSmartChips(text: string): string {
   return restored;
 }
 
+/**
+ * react-markdown hands every override its syntax-tree `node`. Spread onto a
+ * DOM element it rendered node="[object Object]" on every paragraph.
+ */
+function domProps<T extends object>(props: T): Omit<T, 'node'> {
+  const rest = { ...props } as T & { node?: unknown };
+  delete rest.node;
+  return rest;
+}
+
 interface AnswerMarkdownProps {
   content: string;
   onOpenMap: (locationKey: string | null) => void;
@@ -310,28 +349,28 @@ const AnswerMarkdown = memo(function AnswerMarkdown({
   const components = useMemo<Components>(
     () => ({
       strong: ({ ...props }) => (
-        <strong className="font-semibold text-foreground" {...props} />
+        <strong className="font-semibold text-foreground" {...domProps(props)} />
       ),
-      em: ({ ...props }) => <em className="italic text-foreground/90" {...props} />,
+      em: ({ ...props }) => <em className="italic text-foreground/90" {...domProps(props)} />,
       h1: ({ ...props }) => (
-        <h1 className="mb-2 mt-5 text-xl font-semibold leading-tight text-foreground first:mt-0" {...props} />
+        <h1 className="mb-2 mt-5 text-xl font-semibold leading-tight text-foreground first:mt-0" {...domProps(props)} />
       ),
       h2: ({ ...props }) => (
-        <h2 className="mb-2 mt-5 text-lg font-semibold leading-tight text-foreground first:mt-0" {...props} />
+        <h2 className="mb-2 mt-5 text-lg font-semibold leading-tight text-foreground first:mt-0" {...domProps(props)} />
       ),
       h3: ({ ...props }) => (
-        <h3 className="mb-2 mt-4 text-base font-semibold leading-snug text-foreground first:mt-0" {...props} />
+        <h3 className="mb-2 mt-4 text-base font-semibold leading-snug text-foreground first:mt-0" {...domProps(props)} />
       ),
       h4: ({ ...props }) => (
-        <h4 className="mb-2 mt-4 text-sm font-semibold leading-snug text-foreground first:mt-0" {...props} />
+        <h4 className="mb-2 mt-4 text-sm font-semibold leading-snug text-foreground first:mt-0" {...domProps(props)} />
       ),
       ul: ({ ...props }) => (
-        <ul className="mb-3 list-disc space-y-1 pl-6 marker:text-muted-foreground" {...props} />
+        <ul className="mb-3 list-disc space-y-1 pl-6 marker:text-muted-foreground" {...domProps(props)} />
       ),
       ol: ({ ...props }) => (
-        <ol className="mb-3 list-decimal space-y-1 pl-6 marker:text-muted-foreground" {...props} />
+        <ol className="mb-3 list-decimal space-y-1 pl-6 marker:text-muted-foreground" {...domProps(props)} />
       ),
-      li: ({ ...props }) => <li className="pl-1 leading-7" {...props} />,
+      li: ({ ...props }) => <li className="pl-1 leading-7" {...domProps(props)} />,
       a: ({ href, children, ...props }) => {
         const textContent =
           typeof children === 'string'
@@ -351,7 +390,7 @@ const AnswerMarkdown = memo(function AnswerMarkdown({
               href={telHref}
               className="inline cursor-pointer font-medium text-emerald-400 underline decoration-1 decoration-emerald-500/40 underline-offset-4 transition-colors hover:text-emerald-300 hover:decoration-emerald-300 active:opacity-70"
               title={`Call ${textContent}`}
-              {...props}
+              {...domProps(props)}
             >
               <span>{children}</span>
             </a>
@@ -363,7 +402,7 @@ const AnswerMarkdown = memo(function AnswerMarkdown({
               href={href}
               className="inline cursor-pointer font-medium text-violet-400 underline decoration-1 decoration-violet-500/40 underline-offset-4 transition-colors hover:text-violet-300 hover:decoration-violet-300 active:opacity-70"
               title={`Email ${href.replace('mailto:', '')}`}
-              {...props}
+              {...domProps(props)}
             >
               <span>{children}</span>
             </a>
@@ -397,45 +436,45 @@ const AnswerMarkdown = memo(function AnswerMarkdown({
             className="inline font-medium text-rose-400 underline decoration-1 decoration-rose-500/40 underline-offset-4 transition-colors hover:text-rose-300 hover:decoration-rose-300 active:opacity-70"
             target="_blank"
             rel="noopener noreferrer"
-            {...props}
+            {...domProps(props)}
           >
             <span>{children}</span>
           </a>
         );
       },
-      p: ({ ...props }) => <p className="mb-3 last:mb-0" {...props} />,
+      p: ({ ...props }) => <p className="mb-3 last:mb-0" {...domProps(props)} />,
       code: ({ ...props }) => (
         <code
           className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[0.88em] text-foreground [overflow-wrap:anywhere]"
-          {...props}
+          {...domProps(props)}
         />
       ),
       pre: ({ ...props }) => (
         <pre
           className="my-4 overflow-x-auto rounded-xl border border-border/50 bg-muted/50 p-4 font-mono text-xs leading-6 text-foreground [&>code]:bg-transparent [&>code]:p-0"
-          {...props}
+          {...domProps(props)}
         />
       ),
       blockquote: ({ ...props }) => (
         <blockquote
           className="my-4 border-l-2 border-rose-400/50 pl-4 text-muted-foreground"
-          {...props}
+          {...domProps(props)}
         />
       ),
       hr: () => <hr className="my-5 border-border/60" />,
       table: ({ ...props }) => (
         <div className="my-4 overflow-x-auto rounded-xl border border-border/50 scrollbar-none">
-          <table className="w-full border-collapse text-xs sm:text-sm" {...props} />
+          <table className="w-full border-collapse text-xs sm:text-sm" {...domProps(props)} />
         </div>
       ),
-      thead: ({ ...props }) => <thead className="bg-muted/50" {...props} />,
+      thead: ({ ...props }) => <thead className="bg-muted/50" {...domProps(props)} />,
       th: ({ ...props }) => (
         <th
           className="border border-border/50 px-4 py-2 text-left font-bold"
-          {...props}
+          {...domProps(props)}
         />
       ),
-      td: ({ ...props }) => <td className="border border-border/50 px-4 py-2" {...props} />,
+      td: ({ ...props }) => <td className="border border-border/50 px-4 py-2" {...domProps(props)} />,
     }),
     [onOpenMap]
   );
@@ -564,12 +603,26 @@ async function chatFailureFromResponse(response: Response): Promise<ChatRequestF
       resources
     );
   }
+  if (code === 'busy') {
+    // The Brain is at capacity. Saying "you've reached the chat limit" blamed
+    // the student for everyone else's questions.
+    return new ChatRequestFailure(
+      'RockyGPT is answering a lot of questions right now. Please try again in a moment.',
+      requestId
+    );
+  }
   if (response.status === 429 || code === 'RATE_LIMITED') {
+    const retryAfterSeconds = Number(response.headers.get('Retry-After'));
     return new ChatRequestFailure(
       retryDelay
         ? `You’ve reached the chat limit for now. Please try again in ${retryDelay}.`
         : 'You’ve reached the chat limit for now. Please wait a little while and try again.',
-      requestId
+      requestId,
+      true,
+      [],
+      Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+        ? Date.now() + retryAfterSeconds * 1000
+        : undefined
     );
   }
   if (response.status === 503 || code === 'SERVICE_UNAVAILABLE' || code === 'DATASET_UNAVAILABLE') {
@@ -603,6 +656,7 @@ async function chatFailureFromResponse(response: Response): Promise<ChatRequestF
  * Main RockyGPT chat page.
  */
 export default function Home() {
+  const router = useRouter();
   // Publishes `--keyboard-inset` for as long as this page is mounted. The
   // composer and the modal shell read it from CSS; subscribing here is what
   // keeps it measured, and one subscription is all the measurement needs.
@@ -652,8 +706,14 @@ export default function Home() {
         const savedMessages = window.sessionStorage.getItem('rockygpt_session_messages');
         if (savedMessages) {
           const parsed = JSON.parse(savedMessages);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            setMessages(parsed);
+          // Threads saved before placeholders were filtered can still hold one.
+          const restored = Array.isArray(parsed)
+            ? (parsed as ChatMessage[]).filter(
+                (message) => message.role === 'user' || message.isError || message.content
+              )
+            : [];
+          if (restored.length > 0) {
+            setMessages(restored);
             setIsSplashDismissed(true);
           }
         }
@@ -690,8 +750,13 @@ export default function Home() {
     // same final conversation state that was persisted previously.
     if (IS_DEVELOPMENT || messages.some((message) => message.isTyping)) return;
     try {
-      if (messages.length > 0) {
-        window.sessionStorage.setItem('rockygpt_session_messages', JSON.stringify(messages));
+      // An answer still on its way is an empty placeholder. Saved as-is, a
+      // reload mid-answer restored a blank bubble with copy and rating buttons.
+      const settled = messages.filter(
+        (message) => message.role === 'user' || message.isError || message.content
+      );
+      if (settled.length > 0) {
+        window.sessionStorage.setItem('rockygpt_session_messages', JSON.stringify(settled));
       } else {
         window.sessionStorage.removeItem('rockygpt_session_messages');
       }
@@ -970,7 +1035,9 @@ export default function Home() {
         (partialAnswer) => {
           setMessages((prev) =>
             prev.map((msg) =>
-              msg.id === assistantMessageId ? { ...msg, content: partialAnswer } : msg
+              msg.id === assistantMessageId
+                ? { ...msg, content: settlePartialMarkdown(partialAnswer) }
+                : msg
             )
           );
         }
@@ -1041,6 +1108,7 @@ export default function Home() {
               resources: requestFailure.resources,
               retryContent: requestFailure.retryable ? userMessage.content : undefined,
               retryUserMessageId: userMessage.id,
+              retryAt: requestFailure.retryAt,
             } as ChatMessage,
           ];
         });
@@ -1074,6 +1142,9 @@ export default function Home() {
 
   const retryMessage = (failedMessage: ChatMessage) => {
     if (!failedMessage.retryContent) return;
+    // With another answer in flight sendMessage refuses, so removing the
+    // failed turn first used to delete the question and send nothing.
+    if (isLoadingRef.current || activeRequestRef.current) return;
     const retryHistory = messages.filter(
       (message) =>
         message.id !== failedMessage.id && message.id !== failedMessage.retryUserMessageId
@@ -1390,13 +1461,11 @@ export default function Home() {
                           </p>
                         )}
                         {m.retryContent && (
-                          <button
-                            type="button"
-                            onClick={() => retryMessage(m)}
-                            className="mt-3 rounded-xl border border-foreground/30 px-3 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-foreground/10"
-                          >
-                            Try again
-                          </button>
+                          <RetryButton
+                            retryAt={m.retryAt}
+                            busy={isLoading}
+                            onRetry={() => retryMessage(m)}
+                          />
                         )}
                       </div>
                     ) : (
@@ -1619,7 +1688,7 @@ export default function Home() {
                     desc: 'Terms & data practices',
                     action: () => {
                       setIsActionMenuOpen(false);
-                      window.location.href = '/privacy';
+                      router.push('/privacy');
                     },
                     color: 'text-[#f4a8b5] bg-[#4d161d]/80 border-[#8E0A26]/40',
                   },
@@ -1629,7 +1698,7 @@ export default function Home() {
                     desc: 'The story & who built it',
                     action: () => {
                       setIsActionMenuOpen(false);
-                      window.location.href = '/about';
+                      router.push('/about');
                     },
                     color: 'text-[#f4a8b5] bg-[#4d161d]/80 border-[#8E0A26]/40',
                   },
@@ -1807,9 +1876,79 @@ export default function Home() {
   );
 }
 
+/**
+ * Try again, held back while another answer loads (sending then was refused
+ * after the old question had already been removed) and until a rate limit's
+ * wait is over, so a tap cannot spend the next attempt on the same refusal.
+ */
+function RetryButton({
+  retryAt,
+  busy,
+  onRetry,
+}: {
+  retryAt?: number;
+  busy: boolean;
+  onRetry: () => void;
+}) {
+  const [waiting, setWaiting] = useState(() => Boolean(retryAt && retryAt > Date.now()));
+  useEffect(() => {
+    if (!retryAt) return;
+    const remaining = retryAt - Date.now();
+    if (remaining <= 0) {
+      setWaiting(false);
+      return;
+    }
+    setWaiting(true);
+    const timer = window.setTimeout(() => setWaiting(false), remaining);
+    return () => window.clearTimeout(timer);
+  }, [retryAt]);
+
+  return (
+    <button
+      type="button"
+      onClick={onRetry}
+      disabled={busy || waiting}
+      className="mt-3 min-h-11 rounded-xl border border-foreground/30 px-4 text-sm font-semibold text-foreground transition-colors hover:bg-foreground/10 disabled:cursor-not-allowed disabled:opacity-40"
+    >
+      {waiting ? 'Try again shortly' : 'Try again'}
+    </button>
+  );
+}
+
+/** "birch-tree-inn" → "Birch Tree Inn"; a site's root is its "Home". */
+function pageName(url: string): string {
+  try {
+    const segment = new URL(url).pathname.split('/').filter(Boolean).pop();
+    if (!segment) return 'Home';
+    return decodeURIComponent(segment)
+      .replace(/\.[a-z0-9]+$/i, '')
+      .split(/[-_]+/)
+      .filter(Boolean)
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+  } catch {
+    return 'Page';
+  }
+}
+
+/**
+ * Two different pages published under one title ("Ramapo Dining" for the
+ * dining home page and for Birch Tree Inn's page) showed as two identical
+ * chips, with no way to tell which was which. A repeated title is labelled
+ * with the page it opens.
+ */
+function sourceLabels(sources: Citation[]): string[] {
+  const counts = new Map<string, number>();
+  for (const source of sources) counts.set(source.title, (counts.get(source.title) ?? 0) + 1);
+  return sources.map((source) =>
+    (counts.get(source.title) ?? 0) > 1 ? `${source.title} · ${pageName(source.url)}` : source.title
+  );
+}
+
 function SourceLinks({ citations }: { citations?: Citation[] }) {
   const sources = cleanCitations(citations);
   if (sources.length === 0) return null;
+  const labels = sourceLabels(sources);
 
   return (
     <div className="contents" data-testid="answer-sources">
@@ -1826,7 +1965,7 @@ function SourceLinks({ citations }: { citations?: Citation[] }) {
             aria-hidden="true"
             className="h-3 w-3 shrink-0 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5"
           />
-          <span className="truncate">{citation.title || `Source ${index + 1}`}</span>
+          <span className="truncate">{labels[index] || `Source ${index + 1}`}</span>
         </a>
       ))}
     </div>
