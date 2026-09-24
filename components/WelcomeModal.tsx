@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useAccessibleDialog } from '@/components/useAccessibleDialog';
 import {
   Utensils,
   Bus,
@@ -31,6 +32,7 @@ import {
   Gift,
   Landmark,
   ExternalLink,
+  X,
 } from 'lucide-react';
 
 export type UserRole =
@@ -62,7 +64,7 @@ const STEP_META: Record<OnboardingStep, { title: string; subtitle: string }> = {
   },
   3: {
     title: 'Who Are You',
-    subtitle: 'Personalizes your suggested tools & questions',
+    subtitle: 'Optional. Picks your starter questions.',
   },
   4: {
     title: 'Feature Highlights',
@@ -174,6 +176,18 @@ export function WelcomeModal({
   const [step, setStep] = useState<OnboardingStep>(1);
   const [userRole, setUserRole] = useState<UserRole | null>(null);
   const [activeDemoTab, setActiveDemoTab] = useState<'dining' | 'shuttles' | 'map' | 'clubs'>('dining');
+  // Closing is always allowed: X, Escape, or Skip. The tour used to have no
+  // way out but its last step, so a new student tapped nine times before
+  // they could ask anything, and Guide reopened it with no exit at all.
+  const dialogRef = useAccessibleDialog(isOpen, onClose);
+
+  // The modal stays mounted between opens, so without this Guide reopened on
+  // whatever step the tour last ended on: the starter questions, not the tour.
+  useEffect(() => {
+    if (!isOpen) return;
+    setStep(1);
+    setActiveDemoTab('dining');
+  }, [isOpen]);
 
   // Load saved preferences if any
   useEffect(() => {
@@ -188,9 +202,6 @@ export function WelcomeModal({
   }, []);
 
   const handleContinue = () => {
-    if (step === 3 && !userRole) {
-      return;
-    }
     if (step === 4) {
       const currentIndex = FEATURE_TABS.indexOf(activeDemoTab);
       if (currentIndex < FEATURE_TABS.length - 1) {
@@ -248,9 +259,11 @@ export function WelcomeModal({
 
   return (
     <div
+      ref={dialogRef}
       role="dialog"
       aria-modal="true"
       aria-labelledby="onboarding-modal-title"
+      tabIndex={-1}
       className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/75 backdrop-blur-md animate-modal-backdrop"
     >
       {/* Magical Ambient Backlight Glow */}
@@ -274,9 +287,17 @@ export function WelcomeModal({
             </p>
           </div>
 
-          <span className="ml-auto shrink-0 rounded-full border border-[#8a2432]/50 bg-[#4d161d]/60 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#f4a8b5]">
+          <span className="ml-auto hidden shrink-0 rounded-full border border-[#8a2432]/50 bg-[#4d161d]/60 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#f4a8b5] xs:inline">
             Beta
           </span>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close welcome tour"
+            className="-my-2 -mr-2 ml-auto inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full xs:ml-0 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <X aria-hidden="true" className="h-4 w-4" />
+          </button>
         </div>
 
         {/* Modal Body with balanced vertical content */}
@@ -305,8 +326,8 @@ export function WelcomeModal({
                     <Utensils className="h-4 w-4" />
                   </div>
                   <div className="min-w-0">
-                    <div className="text-xs font-semibold text-foreground truncate">Live Dining</div>
-                    <div className="text-[10px] text-muted-foreground truncate">Birch menus & cafes</div>
+                    <div className="text-xs font-semibold leading-snug text-foreground">Live Dining</div>
+                    <div className="text-[10px] leading-snug text-muted-foreground">Birch menus & cafes</div>
                   </div>
                 </div>
 
@@ -318,8 +339,8 @@ export function WelcomeModal({
                     <Bus className="h-4 w-4" />
                   </div>
                   <div className="min-w-0">
-                    <div className="text-xs font-semibold text-foreground truncate">Shuttle Loops</div>
-                    <div className="text-[10px] text-muted-foreground truncate">Train & campus loops</div>
+                    <div className="text-xs font-semibold leading-snug text-foreground">Shuttle Loops</div>
+                    <div className="text-[10px] leading-snug text-muted-foreground">Train & campus loops</div>
                   </div>
                 </div>
 
@@ -331,8 +352,8 @@ export function WelcomeModal({
                     <MapPin className="h-4 w-4" />
                   </div>
                   <div className="min-w-0">
-                    <div className="text-xs font-semibold text-foreground truncate">Room Finder</div>
-                    <div className="text-[10px] text-muted-foreground truncate">Buildings & classrooms</div>
+                    <div className="text-xs font-semibold leading-snug text-foreground">Room Finder</div>
+                    <div className="text-[10px] leading-snug text-muted-foreground">Buildings & classrooms</div>
                   </div>
                 </div>
 
@@ -344,15 +365,15 @@ export function WelcomeModal({
                     <Users className="h-4 w-4" />
                   </div>
                   <div className="min-w-0">
-                    <div className="text-xs font-semibold text-foreground truncate">100+ Clubs</div>
-                    <div className="text-[10px] text-muted-foreground truncate">Orgs & CSI events</div>
+                    <div className="text-xs font-semibold leading-snug text-foreground">100+ Clubs</div>
+                    <div className="text-[10px] leading-snug text-muted-foreground">Orgs & CSI events</div>
                   </div>
                 </div>
               </div>
 
               {/* Trust Footer Bar */}
               <div
-                className="flex items-center justify-between px-3 py-2 rounded-xl bg-card/60 border border-border text-[11px] text-muted-foreground animate-magical-item"
+                className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 px-3 py-2 rounded-xl bg-card/60 border border-border text-[11px] text-muted-foreground animate-magical-item"
                 style={{ animationDelay: '620ms' }}
               >
                 <span className="inline-flex items-center gap-1">
@@ -365,6 +386,10 @@ export function WelcomeModal({
                   <Check className="h-3 w-3 text-[#f4a8b5]" /> Built for Ramapo
                 </span>
               </div>
+
+              <p className="px-1 text-[11px] leading-relaxed text-muted-foreground animate-magical-item" style={{ animationDelay: '680ms' }}>
+                An independent student project. Not affiliated with or endorsed by Ramapo College.
+              </p>
             </div>
           )}
 
@@ -395,6 +420,17 @@ export function WelcomeModal({
                   </div>
                 </div>
               </div>
+
+              <a
+                href="/about?from=onboarding"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex min-h-11 items-center gap-1.5 text-xs font-medium text-foreground underline underline-offset-4 animate-magical-item"
+                style={{ animationDelay: '380ms' }}
+              >
+                Read the full story
+                <ExternalLink aria-hidden="true" className="h-3.5 w-3.5 text-[#f4a8b5]" />
+              </a>
             </div>
           )}
 
@@ -652,10 +688,18 @@ export function WelcomeModal({
         {/* Footer Navigation & Progress Bar */}
         <div className="border-t border-border bg-card/40 shrink-0">
           {/* Sleek Animated Onboarding Progress Bar with Smooth Glide Physics */}
-          <div className="relative h-1.5 w-full bg-black/50 overflow-hidden">
+          <div
+            role="progressbar"
+            aria-label="Tour progress"
+            aria-valuemin={1}
+            aria-valuemax={TOTAL_STEPS}
+            aria-valuenow={step}
+            aria-valuetext={`Step ${step} of ${TOTAL_STEPS}`}
+            className="relative h-1.5 w-full bg-black/50 overflow-hidden"
+          >
             <div
               className="relative h-full bg-gradient-to-r from-[#8a2432] via-[#d43f5e] to-[#f4a8b5] transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] shadow-[0_0_12px_rgba(244,168,181,0.8)]"
-              style={{ width: `${((step - 1) / (TOTAL_STEPS - 1)) * 100}%` }}
+              style={{ width: `${(step / TOTAL_STEPS) * 100}%` }}
             >
               {/* Glowing feathered leading edge beam */}
               <div className="absolute right-0 top-0 bottom-0 w-4 bg-gradient-to-l from-white via-white/80 to-transparent blur-[1px]" />
@@ -667,49 +711,41 @@ export function WelcomeModal({
               <button
                 type="button"
                 onClick={handleBack}
-                className="inline-flex items-center gap-1.5 rounded-xl bg-background border border-border px-3.5 py-2 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
+                className="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-background border border-border px-3.5 py-2 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
               >
                 <ArrowLeft className="h-3.5 w-3.5" />
                 <span>Back</span>
               </button>
             ) : (
-              <span className="text-[10px] sm:text-[11px] font-bold tracking-wider text-[#f4a8b5] uppercase drop-shadow-[0_0_12px_rgba(244,168,181,0.7)] animate-pulse">
-                NOT AFFILIATED WITH RAMAPO COLLEGE
-              </span>
-            )}
-
-            {/* The story step keeps its deep-dive link beside the primary action */}
-            {step === 2 && (
-              <a
-                href="/about?from=onboarding"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="ml-auto inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl bg-background border border-border px-3 sm:px-3.5 py-2 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer group"
+              <button
+                type="button"
+                onClick={onClose}
+                className="inline-flex min-h-11 items-center rounded-xl px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               >
-                <span>Learn more</span>
-                <ExternalLink className="h-3.5 w-3.5 text-[#f4a8b5] transition-transform group-hover:translate-x-0.5" />
-              </a>
+                Skip tour
+              </button>
             )}
 
             {step < TOTAL_STEPS ? (
               <button
                 type="button"
                 onClick={handleContinue}
-                disabled={step === 3 && !userRole}
-                className={`inline-flex shrink-0 items-center gap-1.5 rounded-xl border px-4 sm:px-5 py-2 text-xs font-semibold shadow-sm transition-all ${
-                  step === 3 && !userRole
-                    ? 'bg-[#4d161d]/25 text-white/35 border-[#8a2432]/20 cursor-not-allowed'
-                    : 'bg-[#4d161d] hover:bg-[#631c26] text-white border-[#8a2432]/40 active:scale-[0.98] cursor-pointer'
-                }`}
+                className="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-xl border px-4 sm:px-5 py-2 text-xs font-semibold shadow-sm transition-all bg-[#4d161d] hover:bg-[#631c26] text-white border-[#8a2432]/40 active:scale-[0.98] cursor-pointer"
               >
-                <span>{step === 4 && activeDemoTab !== 'clubs' ? 'Next' : 'Continue'}</span>
+                <span>
+                  {step === 3 && !userRole
+                    ? 'Skip'
+                    : step === 4 && activeDemoTab !== 'clubs'
+                      ? 'Next'
+                      : 'Continue'}
+                </span>
                 <ArrowRight className="h-3.5 w-3.5" />
               </button>
             ) : (
               <button
                 type="button"
                 onClick={() => handleFinish()}
-                className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-[#4d161d] hover:bg-[#631c26] text-white border border-[#8a2432]/40 px-4 sm:px-5 py-2 text-xs font-semibold shadow-sm transition-all active:scale-[0.98] cursor-pointer"
+                className="inline-flex min-h-11 shrink-0 items-center gap-2 rounded-xl bg-[#4d161d] hover:bg-[#631c26] text-white border border-[#8a2432]/40 px-4 sm:px-5 py-2 text-xs font-semibold shadow-sm transition-all active:scale-[0.98] cursor-pointer"
               >
                 <span>Start Exploring 🚀</span>
               </button>
