@@ -13,7 +13,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useAccessibleDialog } from '@/components/useAccessibleDialog';
-import { X, Bus, MapPin, TrainFront } from 'lucide-react';
+import { X, Bus, Info, MapPin, TrainFront } from 'lucide-react';
 import { loadCampusData, objectWithArray } from '@/lib/campus-data';
 import type { ShuttleRoute, ShuttleSchedule } from '@/lib/data-types';
 import { MODAL_PANEL } from '@/components/modalShell';
@@ -266,7 +266,7 @@ export function BusModal({ isOpen, onClose }: ModalProps) {
             <div className={`p-2.5 rounded-xl ${serviceBadgeClass[serviceType]}`}>
               {serviceType === 'Roadrunner' && <Bus className="w-5 h-5 text-current" />}
               {serviceType === 'TrainLoop' && <TrainFront className="w-5 h-5 text-current" />}
-              {serviceType === 'MoreInfo' && <div className="w-5 h-5 text-current font-bold flex items-center justify-center">?</div>}
+              {serviceType === 'MoreInfo' && <Info className="w-5 h-5 text-current" />}
             </div>
             <div>
               <h2 className="text-xl font-bold leading-none mb-1">Shuttle & Transit</h2>
