@@ -11,7 +11,7 @@
 
 import { readChatStream, ChatStreamError } from '@/lib/chat-stream';
 import { memo, useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { Bot, Bus, Calendar, Check, ChevronRight, ChevronUp, Copy, CreditCard, Download, ExternalLink, FileText, GraduationCap, Info, MapPin, Phone, Printer, Send, Shield, Sparkles, Square, ThumbsDown, ThumbsUp, Users, Utensils, X } from 'lucide-react';
+import { Bot, Bus, Calendar, Check, ChevronRight, ChevronUp, Copy, CreditCard, Download, ExternalLink, FileText, GraduationCap, Info, MapPin, Phone, Printer, Send, Shield, Sparkles, Square, SquarePen, ThumbsDown, ThumbsUp, Users, Utensils, X } from 'lucide-react';
 import { MenuModal } from '@/components/MenuModal';
 import { BusModal } from '@/components/BusModal';
 import { PrintModal } from '@/components/PrintModal';
@@ -855,6 +855,18 @@ export default function Home() {
     setLoading(false);
   };
 
+  // There was no way to start over. The thread is restored on reload, so once
+  // it grew long the only way out was a new tab. A new chat also cancels any
+  // answer still on its way, so it cannot land in the fresh thread.
+  const startNewChat = () => {
+    activeRequestRef.current?.controller.abort();
+    activeRequestRef.current = null;
+    setLoading(false);
+    setMessages([]);
+    setInput('');
+    window.scrollTo({ top: 0 });
+  };
+
   const openBalancePortal = () => {
     window.open(TRANSACT_BALANCE_URL, '_blank', 'noopener,noreferrer');
   };
@@ -1203,21 +1215,34 @@ export default function Home() {
           </div>
 
           <div className="flex items-center gap-1.5">
+            {messages.length > 0 && (
+              <button
+                type="button"
+                onClick={startNewChat}
+                aria-label="New chat"
+                title="New chat"
+                className="flex min-h-11 min-w-11 items-center justify-center rounded-2xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                <SquarePen aria-hidden="true" className="h-4 w-4" />
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setIsWelcomeModalOpen(true)}
               aria-label="Campus guide & welcome tour"
               title="Campus Guide & Welcome Tour"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-rose-500/10 text-rose-300 hover:bg-rose-500/20 transition-colors text-xs font-semibold cursor-pointer"
+              className="flex min-h-11 min-w-11 items-center justify-center gap-1.5 px-3 rounded-2xl bg-rose-500/10 text-rose-300 hover:bg-rose-500/20 transition-colors text-xs font-semibold cursor-pointer"
             >
               <Sparkles aria-hidden="true" className="h-4 w-4 text-rose-400" />
-              <span className="hidden xs:inline">Guide</span>
+              {/* Mid-conversation the header also holds New chat, so Guide
+                  gives up its label to keep the row inside a 360px screen. */}
+              <span className={messages.length > 0 ? 'hidden sm:inline' : 'hidden xs:inline'}>Guide</span>
             </button>
             <button
               type="button"
               onClick={() => setIsSafetyModalOpen(true)}
               aria-label="Campus safety"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors text-xs font-bold"
+              className="flex min-h-11 min-w-11 items-center justify-center gap-1.5 px-3 rounded-2xl bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors text-xs font-bold"
             >
               <Shield aria-hidden="true" className="h-4 w-4" />
               <span className="hidden xs:inline">Safety</span>
@@ -1227,7 +1252,7 @@ export default function Home() {
                 type="button"
                 onClick={handleInstall}
                 aria-label="Install RockyGPT"
-                className="flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-primary text-primary-foreground hover:bg-primary/90 transition-colors text-xs font-medium"
+                className="flex min-h-11 min-w-11 items-center justify-center gap-2 px-3 rounded-2xl bg-primary text-primary-foreground hover:bg-primary/90 transition-colors text-xs font-medium"
               >
                 <Download aria-hidden="true" className="h-4 w-4" />
                 <span className="hidden xs:inline">Install</span>
