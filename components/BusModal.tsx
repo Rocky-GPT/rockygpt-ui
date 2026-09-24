@@ -358,28 +358,29 @@ export function BusModal({ isOpen, onClose }: ModalProps) {
 
         {/* Service Switcher */}
         <div className="px-4 pt-3 pb-1 bg-background">
-          <div className="grid grid-cols-4 gap-1 p-1 bg-muted rounded-lg border border-border/60">
+          {/* Four tabs cannot share a 320px row: "Roadrunner" ran into "Mid-Day". */}
+          <div className="grid grid-cols-2 gap-1 p-1 bg-muted rounded-lg border border-border/60 min-[400px]:grid-cols-4">
             <button
                onClick={() => setServiceType('Roadrunner')}
-               className={`w-full px-2 py-1.5 text-[11px] font-semibold rounded-md transition-all whitespace-nowrap ${serviceType === 'Roadrunner' ? serviceButtonActiveClass.Roadrunner : 'text-muted-foreground hover:text-foreground hover:bg-background/40'}`}
+               className={`w-full min-h-9 px-2 py-1.5 text-[11px] font-semibold rounded-md transition-all whitespace-nowrap ${serviceType === 'Roadrunner' ? serviceButtonActiveClass.Roadrunner : 'text-muted-foreground hover:text-foreground hover:bg-background/40'}`}
             >
               Roadrunner
             </button>
             <button
                onClick={() => setServiceType('TrainLoop')}
-               className={`w-full px-2 py-1.5 text-[11px] font-semibold rounded-md transition-all whitespace-nowrap ${serviceType === 'TrainLoop' ? serviceButtonActiveClass.TrainLoop : 'text-muted-foreground hover:text-foreground hover:bg-background/40'}`}
+               className={`w-full min-h-9 px-2 py-1.5 text-[11px] font-semibold rounded-md transition-all whitespace-nowrap ${serviceType === 'TrainLoop' ? serviceButtonActiveClass.TrainLoop : 'text-muted-foreground hover:text-foreground hover:bg-background/40'}`}
             >
               Mid-Day
             </button>
             <button
                onClick={() => setServiceType('Shortline')}
-               className={`w-full px-2 py-1.5 text-[11px] font-semibold rounded-md transition-all whitespace-nowrap ${serviceType === 'Shortline' ? serviceButtonActiveClass.Shortline : 'text-muted-foreground hover:text-foreground hover:bg-background/40'}`}
+               className={`w-full min-h-9 px-2 py-1.5 text-[11px] font-semibold rounded-md transition-all whitespace-nowrap ${serviceType === 'Shortline' ? serviceButtonActiveClass.Shortline : 'text-muted-foreground hover:text-foreground hover:bg-background/40'}`}
             >
               Shortline
             </button>
             <button
                onClick={() => setServiceType('MoreInfo')}
-               className={`w-full px-2 py-1.5 text-[11px] font-semibold rounded-md transition-all whitespace-nowrap ${serviceType === 'MoreInfo' ? serviceButtonActiveClass.MoreInfo : 'text-muted-foreground hover:text-foreground hover:bg-background/40'}`}
+               className={`w-full min-h-9 px-2 py-1.5 text-[11px] font-semibold rounded-md transition-all whitespace-nowrap ${serviceType === 'MoreInfo' ? serviceButtonActiveClass.MoreInfo : 'text-muted-foreground hover:text-foreground hover:bg-background/40'}`}
             >
               More Info
             </button>

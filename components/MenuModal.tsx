@@ -786,7 +786,7 @@ export function MenuModal({ isOpen, onClose, defaultMeal }: MenuModalProps) {
                                 placeholder="Find food (e.g. 'chicken')..."
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
-                                className="w-full pl-9 pr-3 py-2 h-9 text-sm rounded-lg border border-border/60 bg-muted/30 focus:bg-background focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/40 transition-all placeholder:text-muted-foreground/60"
+                                className="w-full pl-9 pr-3 py-2 h-10 text-base sm:text-sm rounded-lg border border-border/60 bg-muted/30 focus:bg-background focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/40 transition-all placeholder:text-muted-foreground/60"
                             />
                           </div>
                           <button
