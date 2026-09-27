@@ -12,7 +12,7 @@ import {
   Users,
   Utensils,
 } from 'lucide-react';
-import { formatVersionDate, versions } from '@/lib/versions';
+import { formatVersionReleased, versions } from '@/lib/versions';
 
 export const dynamic = 'force-dynamic';
 
@@ -186,8 +186,8 @@ export default async function AboutPage({
                       Latest
                     </span>
                   )}
-                  <time dateTime={entry.date} className="ml-auto text-sm text-muted-foreground">
-                    {formatVersionDate(entry.date)}
+                  <time dateTime={entry.released} className="ml-auto text-sm text-muted-foreground">
+                    {formatVersionReleased(entry.released)}
                   </time>
                 </div>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">{entry.summary}</p>
