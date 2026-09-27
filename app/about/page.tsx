@@ -12,6 +12,7 @@ import {
   Users,
   Utensils,
 } from 'lucide-react';
+import { formatVersionDate, versions } from '@/lib/versions';
 
 export const dynamic = 'force-dynamic';
 
@@ -164,6 +165,35 @@ export default async function AboutPage({
             Ramapo College service, it is not affiliated with or endorsed by the College, and no
             College office administers it.
           </p>
+        </section>
+
+        <section aria-labelledby="versions" className="mt-12">
+          <h2 id="versions" className="text-2xl font-semibold tracking-tight">
+            Versions
+          </h2>
+          <ol className="mt-5 space-y-3">
+            {versions.map((entry, index) => (
+              <li
+                key={entry.version}
+                className={`rounded-2xl border bg-muted/35 p-4 ${
+                  index === 0 ? 'border-[#862633]/60' : 'border-border'
+                }`}
+              >
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <h3 className="font-semibold">{entry.version}</h3>
+                  {index === 0 && (
+                    <span className="rounded-full border border-[#862633]/60 bg-[#862633]/25 px-2.5 py-0.5 text-xs font-semibold text-[#ef9baa]">
+                      Latest
+                    </span>
+                  )}
+                  <time dateTime={entry.date} className="ml-auto text-sm text-muted-foreground">
+                    {formatVersionDate(entry.date)}
+                  </time>
+                </div>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">{entry.summary}</p>
+              </li>
+            ))}
+          </ol>
         </section>
 
         <section aria-labelledby="feedback" className="mt-12 rounded-2xl border border-border p-6">
