@@ -17,6 +17,12 @@ export interface Version {
 
 export const versions: Version[] = [
   {
+    version: 'v2.3.3',
+    released: '2026-09-28T20:14:57Z',
+    summary:
+      'When one detail of an answer can\'t be checked, RockyGPT leaves out just that detail and keeps the rest. It understands names students use, like "Dunkin" and "Atrium", reads "tmrw" as tomorrow, and lists Birch\'s late night dishes without the toppings.',
+  },
+  {
     version: 'v2.3.2',
     released: '2026-09-28T17:39:51Z',
     summary:
