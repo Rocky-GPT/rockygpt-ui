@@ -52,6 +52,9 @@ interface ChatMessage {
   isTyping?: boolean;
   brainTrace?: BrainTrace;
   resources?: Citation[];
+  /** Emergency guidance shown above a failure, so no failure hides where to get help. */
+  emergency?: string;
+  emergencySources?: Citation[];
   /** Epoch ms before which Try again would only hit the same limit. */
   retryAt?: number;
 }
@@ -96,6 +99,7 @@ interface ChatApiResponse {
     retryAfterSeconds?: number;
     resetAt?: string;
     resources?: Citation[];
+    emergency?: { text?: string; sources?: Citation[] };
   };
 }
 
@@ -104,7 +108,20 @@ interface ActiveChatRequest {
   assistantMessageId: string;
 }
 
+/**
+ * Shown with every failed answer. With the AI budget spent, "someone passed out and
+ * isn't waking up" got only "monthly AI allowance exhausted" (09-28). The Brain adds
+ * Public Safety's numbers from their verified records when it can read them; when the
+ * Brain can't be reached, these universal numbers still show.
+ */
+const EMERGENCY_TEXT =
+  'If you or someone else is in danger, call 911. If you might hurt yourself, call or text 988 (Suicide & Crisis Lifeline).';
+
 class ChatRequestFailure extends Error {
+  /** The Brain's code-written emergency guidance, or the fixed 911/988 line. */
+  emergency = EMERGENCY_TEXT;
+  emergencySources: Citation[] = [];
+
   constructor(
     message: string,
     readonly requestId?: string,
@@ -115,6 +132,20 @@ class ChatRequestFailure extends Error {
     super(message);
     this.name = 'ChatRequestFailure';
   }
+}
+
+function safeLinks(citations?: Citation[]): Citation[] {
+  return cleanCitations(citations)
+    .filter((resource) => {
+      if (typeof resource.title !== 'string' || typeof resource.url !== 'string') return false;
+      try {
+        const url = new URL(resource.url);
+        return url.protocol === 'https:' && !url.username && !url.password;
+      } catch {
+        return false;
+      }
+    })
+    .slice(0, 8);
 }
 
 // Active during local development (`npm run dev`) for instant inspection; automatically hidden in production builds
@@ -578,6 +609,16 @@ function retryDelayLabel(rawValue: string | null): string | null {
 
 async function chatFailureFromResponse(response: Response): Promise<ChatRequestFailure> {
   const payload = (await response.json().catch(() => ({}))) as ChatApiResponse;
+  const failure = chatFailureFromPayload(response, payload);
+  const emergency = typeof payload.error === 'object' ? payload.error?.emergency : undefined;
+  if (typeof emergency?.text === 'string' && emergency.text.trim()) {
+    failure.emergency = emergency.text.trim();
+    failure.emergencySources = safeLinks(emergency.sources);
+  }
+  return failure;
+}
+
+function chatFailureFromPayload(response: Response, payload: ChatApiResponse): ChatRequestFailure {
   const code = typeof payload.error === 'object' ? payload.error?.code : undefined;
   const requestId = payload.requestId || response.headers.get('X-Request-Id') || undefined;
   const retryDelay = retryDelayLabel(response.headers.get('Retry-After'));
@@ -610,17 +651,7 @@ async function chatFailureFromResponse(response: Response): Promise<ChatRequestF
             timeZone: 'America/New_York',
           }).format(reset)} (New York).`
         : '';
-    const resources = cleanCitations(payload.error.resources)
-      .filter((resource) => {
-        if (typeof resource.title !== 'string' || typeof resource.url !== 'string') return false;
-        try {
-          const url = new URL(resource.url);
-          return url.protocol === 'https:' && !url.username && !url.password;
-        } catch {
-          return false;
-        }
-      })
-      .slice(0, 8);
+    const resources = safeLinks(payload.error.resources);
     return new ChatRequestFailure(
       (payload.error.message?.trim() || 'RockyGPT is currently unavailable.') + resetMessage,
       requestId,
@@ -1180,6 +1211,8 @@ export default function Home() {
               requestId: requestFailure.requestId,
               isError: true,
               resources: requestFailure.resources,
+              emergency: requestFailure.emergency,
+              emergencySources: requestFailure.emergencySources,
               retryContent: requestFailure.retryable ? userMessage.content : undefined,
               retryUserMessageId: userMessage.id,
               retryAt: requestFailure.retryAt,
@@ -1512,6 +1545,22 @@ export default function Home() {
                         role="alert"
                         className="w-full rounded-2xl border border-amber-400/40 bg-amber-400/10 p-4 text-sm text-foreground"
                       >
+                        {m.emergency && (
+                          <p className="mb-3 font-semibold leading-6">
+                            {m.emergency}
+                            {m.emergencySources?.map((source) => (
+                              <a
+                                key={source.url}
+                                href={source.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="ml-2 font-normal underline underline-offset-4"
+                              >
+                                {source.title}
+                              </a>
+                            ))}
+                          </p>
+                        )}
                         <p className="font-medium leading-6">{m.content}</p>
                         {m.resources && m.resources.length > 0 && (
                           <ul className="mt-3 list-disc space-y-1 pl-5">
