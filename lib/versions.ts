@@ -17,6 +17,12 @@ export interface Version {
 
 export const versions: Version[] = [
   {
+    version: 'v2.3.4',
+    released: '2026-09-28T23:03:29Z',
+    summary:
+      'More answers come straight from the published records in about a second: who convenes a program ("who is the CS convener"), a day\'s events, the first, next or last shuttle (including the first one to a stop like Garden State Plaza), and contact details however you ask. If RockyGPT can\'t answer, it still shows emergency numbers.',
+  },
+  {
     version: 'v2.3.3',
     released: '2026-09-28T20:14:57Z',
     summary:
