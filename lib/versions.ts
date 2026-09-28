@@ -17,6 +17,12 @@ export interface Version {
 
 export const versions: Version[] = [
   {
+    version: 'v2.3.1',
+    released: '2026-09-28T14:39:43Z',
+    summary:
+      'Asking for Public Safety\'s number gives both the emergency and non-emergency lines. "Tonight\'s menu" means dinner, and when the directory doesn\'t list an office\'s phone or hours, RockyGPT checks the office\'s own pages.',
+  },
+  {
     version: 'v2.3.0',
     released: '2026-09-28T12:43:01Z',
     summary:
