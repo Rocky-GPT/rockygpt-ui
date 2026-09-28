@@ -17,6 +17,12 @@ export interface Version {
 
 export const versions: Version[] = [
   {
+    version: 'v2.3.0',
+    released: '2026-09-28T12:43:01Z',
+    summary:
+      'Simple contact questions, like an office\'s phone number or email, are answered in about a second. Questions with several parts, like hours, a phone number and the next shuttle, get every part looked up at once.',
+  },
+  {
     version: 'v2.2.0',
     released: '2026-09-28T03:37:44Z',
     summary:
