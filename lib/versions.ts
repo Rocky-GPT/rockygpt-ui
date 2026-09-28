@@ -17,6 +17,12 @@ export interface Version {
 
 export const versions: Version[] = [
   {
+    version: 'v2.2.0',
+    released: '2026-09-28T03:37:44Z',
+    summary:
+      'More questions go straight to the answer: RockyGPT better understands which office, day, meal or detail you mean, so hours, menus, phone numbers, shuttle times and follow-ups like "and their email?" come back sooner.',
+  },
+  {
     version: 'v2.1.1',
     released: '2026-09-27T16:43:37Z',
     summary:
