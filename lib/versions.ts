@@ -18,7 +18,7 @@ export interface Version {
 export const versions: Version[] = [
   {
     version: 'v2.3.2',
-    released: '2026-09-28',
+    released: '2026-09-28T17:39:51Z',
     summary:
       'Menu answers cover the whole meal, not just the first 12 items: RockyGPT lists the main dishes, says how many items there are, and shows the full menu when you ask. Plain questions like "what\'s for lunch at Birch?" or "library hours today" are answered faster, straight from the published menu and hours.',
   },
