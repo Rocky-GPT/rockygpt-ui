@@ -54,6 +54,34 @@ const server = createServer((request, response) => {
       return;
     }
 
+    if (lastMessage?.content === '__mock_old_brain__' && 'omittedMessages' in payload) {
+      // A Brain from before 09-29 refuses omittedMessages as FastAPI does.
+      json(response, 422, {
+        detail: [
+          {
+            type: 'extra_forbidden',
+            loc: ['body', 'omittedMessages'],
+            msg: 'Extra inputs are not permitted',
+            input: payload.omittedMessages,
+          },
+        ],
+      });
+      return;
+    }
+
+    if (lastMessage?.content === '__mock_invalid_conversation__') {
+      json(response, 422, {
+        detail: [
+          {
+            type: 'value_error',
+            loc: ['body'],
+            msg: 'Value error, Conversation is too long; start a new conversation',
+          },
+        ],
+      });
+      return;
+    }
+
     if (lastMessage?.content === '__mock_budget_exhausted__') {
       // The month's AI allowance is spent: the Brain answers every question this way,
       // with Public Safety's numbers read from their verified records.
@@ -73,6 +101,45 @@ const server = createServer((request, response) => {
           },
         },
       });
+      return;
+    }
+
+    if (
+      lastMessage?.content === '__mock_safety_stream__' &&
+      String(request.headers.accept).includes('text/event-stream')
+    ) {
+      // The Brain sends its code-written safety block as soon as it detects
+      // danger, and the final answer opens with the same block (09-29).
+      const safety = {
+        answer:
+          'If you or someone else is in danger, call 911. Ramapo College Public Safety: ' +
+          'emergency 201-684-6666.',
+        citations: [
+          { id: 'critical_facts:public-safety', title: 'Public Safety', url: 'https://www.ramapo.edu/publicsafety/' },
+        ],
+      };
+      const frame = (event, data) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+      response.writeHead(200, {
+        'content-type': 'text/event-stream',
+        'cache-control': 'no-cache',
+        'x-request-id': 'mock-safety',
+      });
+      response.write(frame('progress', { stage: 'understanding', safety }));
+      setTimeout(() => {
+        response.write(frame('progress', { stage: 'reviewing', draft: 'Stay with them.' }));
+      }, 500);
+      setTimeout(() => {
+        response.end(frame('result', {
+          status: 200,
+          body: {
+            requestId: 'mock-safety',
+            answer: `${safety.answer}\n\nStay with them until help arrives.`,
+            citations: safety.citations,
+            uiActions: [],
+            suggestedQuestions: [],
+          },
+        }));
+      }, 2_500);
       return;
     }
 

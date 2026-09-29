@@ -71,10 +71,47 @@ export class ChatStreamError extends Error {
   }
 }
 
+/** Code-written emergency guidance the Brain sends as soon as it detects danger. */
+export interface ChatSafety {
+  answer: string;
+  citations: { id?: string; title: string; url: string }[];
+}
+
+const MAX_SAFETY_CHARACTERS = 4_000;
+
+function safetyLink(value: unknown): ChatSafety['citations'] {
+  if (!value || typeof value !== 'object') return [];
+  const item = value as Record<string, unknown>;
+  if (typeof item.title !== 'string' || !item.title.trim() || typeof item.url !== 'string') return [];
+  try {
+    const url = new URL(item.url);
+    if (url.protocol !== 'https:' || url.username || url.password) return [];
+  } catch {
+    return [];
+  }
+  return [{ ...(typeof item.id === 'string' ? { id: item.id } : {}), title: item.title.trim(), url: item.url }];
+}
+
+/**
+ * The call-911 block used to reach the student only with the final answer,
+ * after retrieval, drafting and review: 29 s on Q30 (09-29). Anything that is
+ * not exactly the expected shape is ignored rather than failing the answer.
+ */
+function readSafety(value: unknown): ChatSafety | null {
+  if (!value || typeof value !== 'object') return null;
+  const safety = value as Record<string, unknown>;
+  if (typeof safety.answer !== 'string') return null;
+  const answer = safety.answer.trim();
+  if (!answer || answer.length > MAX_SAFETY_CHARACTERS) return null;
+  const citations = Array.isArray(safety.citations) ? safety.citations.flatMap(safetyLink).slice(0, 8) : [];
+  return { answer, citations };
+}
+
 /** Draft previews are separate from the final response and only appear during review. */
 export async function readChatStream(
   response: Response,
-  onProgress: (label: string, detail: string, draft: string) => void
+  onProgress: (label: string, detail: string, draft: string) => void,
+  options?: { onSafety?: (safety: ChatSafety) => void }
 ): Promise<Response> {
   if (!response.ok || !response.headers.get('content-type')?.includes('text/event-stream')) {
     return response;
@@ -103,6 +140,8 @@ export async function readChatStream(
         if (!data || typeof data !== 'object') throw new ChatStreamError();
         const payload = data as Record<string, unknown>;
         if (event === 'progress') {
+          const safety = readSafety(payload.safety);
+          if (safety) options?.onSafety?.(safety);
           if (typeof payload.stage === 'string' && Object.hasOwn(CHAT_PROGRESS_LABELS, payload.stage)) {
             const draft = payload.stage === 'reviewing' && typeof payload.draft === 'string'
               ? payload.draft.slice(0, 72000).trim() : '';
@@ -116,8 +155,13 @@ export async function readChatStream(
             !payload.body || typeof payload.body !== 'object'
           ) throw new ChatStreamError();
           const headers = new Headers({ 'content-type': 'application/json' });
-          const requestId = response.headers.get('x-request-id');
-          if (requestId) headers.set('x-request-id', requestId);
+          // The page reads Retry-After for a 429's cooldown and retry timer; the
+          // rebuilt response used to keep only the request id, so a streamed limit
+          // lost it (09-29).
+          for (const name of ['x-request-id', 'retry-after']) {
+            const value = response.headers.get(name);
+            if (value) headers.set(name, value);
+          }
           return new Response(JSON.stringify(payload.body), { status: payload.status, headers });
         }
       }
