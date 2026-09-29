@@ -32,6 +32,10 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # History trimming, stream reading and rate limits.
+      - name: Unit tests
+        run: npm run test:unit
+
       - name: Production build
         run: npm run build
 
