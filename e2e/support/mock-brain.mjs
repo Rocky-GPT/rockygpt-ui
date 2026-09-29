@@ -54,6 +54,28 @@ const server = createServer((request, response) => {
       return;
     }
 
+    if (lastMessage?.content === '__mock_budget_exhausted__') {
+      // The month's AI allowance is spent: the Brain answers every question this way,
+      // with Public Safety's numbers read from their verified records.
+      json(response, 429, {
+        requestId: 'mock-budget-exhausted',
+        error: {
+          code: 'budget_exhausted',
+          message: "RockyGPT has used this month's AI allowance.",
+          retryable: false,
+          resetAt: '2026-10-01T00:00:00-04:00',
+          emergency: {
+            text:
+              'If you or someone else is in danger, call 911. If you might hurt yourself, ' +
+              'call or text 988. Ramapo College Public Safety: emergency 201-684-6666; ' +
+              'non-emergency 201-684-7432.',
+            sources: [{ title: 'Public Safety', url: 'https://www.ramapo.edu/publicsafety/' }],
+          },
+        },
+      });
+      return;
+    }
+
     json(response, 200, {
       requestId: 'mock-success',
       answer: `Answer for: ${lastMessage?.content ?? ''}`,
