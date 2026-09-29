@@ -17,6 +17,12 @@ export interface Version {
 
 export const versions: Version[] = [
   {
+    version: 'v2.3.5',
+    released: '2026-09-29T02:47:00Z',
+    summary:
+      'Asking what you can eat right now between meals shows the next meal\'s menu in one answer, a few seconds faster. Late at night, "when is the last shuttle?" says today\'s last times have passed and gives tomorrow\'s first. The overnight guest policy answer gives the actual rule, "Common Grounds" finds the Starbucks there, and requests like "register me" or "show my grades" get an instant answer about what RockyGPT can\'t access.',
+  },
+  {
     version: 'v2.3.4',
     released: '2026-09-28T23:03:29Z',
     summary:
