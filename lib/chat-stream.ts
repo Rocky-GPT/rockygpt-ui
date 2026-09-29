@@ -155,8 +155,13 @@ export async function readChatStream(
             !payload.body || typeof payload.body !== 'object'
           ) throw new ChatStreamError();
           const headers = new Headers({ 'content-type': 'application/json' });
-          const requestId = response.headers.get('x-request-id');
-          if (requestId) headers.set('x-request-id', requestId);
+          // The page reads Retry-After for a 429's cooldown and retry timer; the
+          // rebuilt response used to keep only the request id, so a streamed limit
+          // lost it (09-29).
+          for (const name of ['x-request-id', 'retry-after']) {
+            const value = response.headers.get(name);
+            if (value) headers.set(name, value);
+          }
           return new Response(JSON.stringify(payload.body), { status: payload.status, headers });
         }
       }
