@@ -112,3 +112,34 @@ test('a gateway timeout without JSON still explains the timeout and keeps the su
   await expect(alert).toContainText('RockyGPT took too long to answer. Please try again.');
   await expect(alert).toContainText('gateway-timeout-test');
 });
+
+test('a spent AI budget still shows emergency help with Public Safety’s numbers', async ({ page }) => {
+  // With the budget spent, "someone passed out and isn't waking up" got only "monthly AI
+  // allowance exhausted" (09-28). This goes through the real chat route to the mock Brain.
+  await page.goto('/');
+  await page.getByRole('textbox', { name: 'Message RockyGPT' }).fill('__mock_budget_exhausted__');
+  await page.getByRole('button', { name: 'Send message', exact: true }).click();
+
+  const alert = page.getByRole('alert').filter({ hasText: 'Support ID:' });
+  await expect(alert).toContainText('call 911');
+  await expect(alert).toContainText('988');
+  await expect(alert).toContainText('emergency 201-684-6666; non-emergency 201-684-7432');
+  await expect(alert.getByRole('link', { name: 'Public Safety' })).toHaveAttribute(
+    'href',
+    'https://www.ramapo.edu/publicsafety/'
+  );
+  await expect(alert).toContainText("RockyGPT has used this month's AI allowance.");
+  await expect(alert).toContainText('mock-budget-exhausted');
+  await expect(alert.getByRole('button', { name: 'Try again', exact: true })).toHaveCount(0);
+});
+
+test('when RockyGPT can’t be reached, the 911 and 988 line still shows', async ({ page }) => {
+  await page.route('**/api/chat', (route) => route.abort('failed'));
+  await page.goto('/');
+  await submitQuestion(page);
+
+  const alert = page.getByRole('alert').filter({ hasText: 'couldn’t reach RockyGPT' });
+  await expect(alert).toContainText('If you or someone else is in danger, call 911.');
+  await expect(alert).toContainText('call or text 988');
+  await expect(alert.getByRole('link', { name: 'Public Safety' })).toHaveCount(0);
+});
