@@ -9,7 +9,7 @@
 
 'use client';
 
-import { readChatStream, ChatStreamError } from '@/lib/chat-stream';
+import { readChatStream, ChatStreamError, type ChatSafety } from '@/lib/chat-stream';
 import { memo, useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Bot, Bus, Calendar, Check, ChevronRight, ChevronUp, Copy, CreditCard, Download, ExternalLink, FileText, GraduationCap, Info, MapPin, Phone, Printer, Send, Shield, Sparkles, Square, SquarePen, ThumbsDown, ThumbsUp, Users, Utensils, X } from 'lucide-react';
@@ -34,7 +34,7 @@ import { bindGlobalTapHaptics, destroyHaptics, triggerHaptic } from '@/lib/hapti
 import { useViewportBand } from '@/lib/visual-viewport';
 import { MAX_MESSAGE_LENGTH } from '@/lib/brain-api';
 import { useAccessibleDialog } from '@/components/useAccessibleDialog';
-import { buildRequestMessages } from '@/lib/chat-conversation';
+import { buildChatRequest } from '@/lib/chat-conversation';
 
 interface ChatMessage {
   id: string;
@@ -722,6 +722,8 @@ export default function Home() {
   const [progressLabel, setProgressLabel] = useState('Sending your question…');
   const [progressContext, setProgressContext] = useState('');
   const [draftPreview, setDraftPreview] = useState('');
+  // Verified, code-written emergency guidance the Brain sends before its answer.
+  const [safetyNotice, setSafetyNotice] = useState<ChatSafety | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [menuMealContext, setMenuMealContext] = useState('lunch');
   const [isBusModalOpen, setIsBusModalOpen] = useState(false);
@@ -926,6 +928,9 @@ export default function Home() {
   const chatInputRef = useRef<HTMLInputElement>(null);
   const [input, setInput] = useState('');
   const activeRequestRef = useRef<ActiveChatRequest | null>(null);
+  // The checked answer and its metadata, held while its text reveals, so Stop
+  // can settle it whole instead of keeping a bare fragment (09-29).
+  const settledAnswerRef = useRef<{ id: string; message: Partial<ChatMessage> } | null>(null);
 
   const messagesRef = useRef<ChatMessage[]>(messages);
   useEffect(() => {
@@ -1013,10 +1018,26 @@ export default function Home() {
     const activeRequest = activeRequestRef.current;
     activeRequest?.controller.abort();
     activeRequestRef.current = null;
+    // Once the checked answer has arrived, Stop only skips the reveal. Keeping
+    // the revealed part dropped the rest, its sources and support ID, and the
+    // next question replayed the fragment as a whole answer (09-29).
+    const settled = settledAnswerRef.current;
+    settledAnswerRef.current = null;
+    // Before the answer, the verified safety block is all the student has. Stop
+    // keeps it as the reply, since dropping it hid the 911 guidance they were
+    // just shown (09-29).
+    const safety = safetyNotice;
+    setSafetyNotice(null);
     if (activeRequest) {
       setMessages((prev) =>
         prev.flatMap((message) => {
           if (message.id !== activeRequest.assistantMessageId) return [message];
+          if (settled?.id === message.id) return [{ ...message, ...settled.message }];
+          if (!message.content && safety) {
+            return [
+              { ...message, content: safety.answer, citations: safety.citations, isTyping: false },
+            ];
+          }
           return message.content ? [{ ...message, isTyping: false }] : [];
         })
       );
@@ -1030,6 +1051,8 @@ export default function Home() {
   const startNewChat = () => {
     activeRequestRef.current?.controller.abort();
     activeRequestRef.current = null;
+    settledAnswerRef.current = null;
+    setSafetyNotice(null);
     setLoading(false);
     setMessages([]);
     setInput('');
@@ -1079,13 +1102,17 @@ export default function Home() {
     setProgressLabel('Sending your question…');
     setProgressContext('');
     setDraftPreview('');
+    setSafetyNotice(null);
+    settledAnswerRef.current = null;
     setLoading(true);
 
     const controller = new AbortController();
     activeRequestRef.current = { controller, assistantMessageId };
+    const isCurrent = () =>
+      !controller.signal.aborted && activeRequestRef.current?.controller === controller;
 
     try {
-      const requestMessages = buildRequestMessages(historyMessages, userMessage);
+      const chatRequest = buildChatRequest(historyMessages, userMessage);
       const upstreamResponse = await fetch('/api/chat', {
         method: 'POST',
         headers: {
@@ -1093,17 +1120,28 @@ export default function Home() {
           Accept: 'text/event-stream',
           'x-rockygpt-client': chatClientToken(),
         },
-        body: JSON.stringify({ messages: requestMessages }),
+        body: JSON.stringify(chatRequest),
         signal: controller.signal,
       });
 
-      const response = await readChatStream(upstreamResponse, (label, detail, draft) => {
-        if (!controller.signal.aborted && activeRequestRef.current?.controller === controller) {
-          setProgressLabel(label);
-          setProgressContext(detail);
-          setDraftPreview(draft);
+      const response = await readChatStream(
+        upstreamResponse,
+        (label, detail, draft) => {
+          if (isCurrent()) {
+            setProgressLabel(label);
+            setProgressContext(detail);
+            setDraftPreview(draft);
+          }
+        },
+        {
+          onSafety: (safety) => {
+            if (isCurrent()) setSafetyNotice(safety);
+          },
         }
-      });
+      );
+      // The final answer opens with the same block, and a failure carries its
+      // own emergency help, so the early notice never shows twice.
+      if (isCurrent()) setSafetyNotice(null);
       if (!response.ok) {
         throw await chatFailureFromResponse(response);
       }
@@ -1121,6 +1159,18 @@ export default function Home() {
       }
       if (controller.signal.aborted || activeRequestRef.current?.controller !== controller)
         return true;
+
+      const settledMessage: Partial<ChatMessage> = {
+        content: finalAnswer,
+        isTyping: false,
+        citations: responseCitations,
+        requestId: data.requestId,
+        question: userMessage.content,
+        uiActions: responseActions,
+        suggestedQuestions: responseSuggestions,
+        brainTrace: data.brainTrace,
+      };
+      settledAnswerRef.current = { id: assistantMessageId, message: settledMessage };
 
       setMessages((prev) =>
         prev.map((msg) => {
@@ -1156,27 +1206,13 @@ export default function Home() {
       }
 
       setMessages((prev) =>
-        prev.map((msg) => {
-          if (msg.id === assistantMessageId) {
-            return {
-              ...msg,
-              content: finalAnswer,
-              isTyping: false,
-              citations: responseCitations,
-              requestId: data.requestId,
-              question: userMessage.content,
-              uiActions: responseActions,
-              suggestedQuestions: responseSuggestions,
-              brainTrace: data.brainTrace,
-            };
-          }
-          return msg;
-        })
+        prev.map((msg) => (msg.id === assistantMessageId ? { ...msg, ...settledMessage } : msg))
       );
       if (finalAnswer.length > 0) {
         requestAnimationFrame(() => triggerHaptic('nudge', 1));
       }
     } catch (error: unknown) {
+      if (isCurrent()) setSafetyNotice(null);
       if (controller.signal.aborted || (error instanceof Error && error.name === 'AbortError')) {
         setMessages((prev) =>
           prev.flatMap((msg) => {
@@ -1221,6 +1257,7 @@ export default function Home() {
         });
       }
     } finally {
+      if (settledAnswerRef.current?.id === assistantMessageId) settledAnswerRef.current = null;
       if (activeRequestRef.current?.controller === controller) {
         activeRequestRef.current = null;
         setLoading(false);
@@ -1673,27 +1710,50 @@ export default function Home() {
           {isLoading &&
             messages[messages.length - 1]?.role === 'assistant' &&
             !messages[messages.length - 1]?.content && (
-              <div role="status" aria-live="polite" aria-atomic="true" className="flex min-w-0 items-start gap-2.5 py-1">
-                <Sparkles className="h-5 w-5 text-[#f4a8b5] animate-thinking-star shrink-0" />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate whitespace-nowrap text-sm font-medium tracking-wide animate-thinking-shimmer select-none">
-                    {progressLabel}
-                  </div>
-                  {progressContext && (
-                    <div className="mt-1 truncate whitespace-nowrap text-xs leading-5 text-zinc-500 dark:text-zinc-400" title={progressContext}>
-                      {progressContext}
+              <>
+                {/*
+                  Verified, code-written guidance, sent as soon as the Brain sees
+                  danger: it waited for the whole answer before (29 s on 09-29).
+                  It sits outside the polite status, so progress updates don't
+                  re-announce it, and it is never labelled a draft.
+                */}
+                {safetyNotice && (
+                  <div
+                    role="alert"
+                    className="w-full rounded-2xl border border-amber-400/40 bg-amber-400/10 p-4 text-sm font-semibold leading-6 text-foreground"
+                  >
+                    <div className="prose prose-invert prose-sm max-w-none [overflow-wrap:anywhere]">
+                      <AnswerMarkdown content={safetyNotice.answer} onOpenMap={openMapModal} />
                     </div>
-                  )}
-                  {draftPreview && (
-                    <div className="mt-3 text-zinc-500 dark:text-zinc-400">
-                      <div className="mb-1 text-xs font-medium">Draft · not verified</div>
-                      <div className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-sm leading-6 [overflow-wrap:anywhere]">
-                        {draftPreview}
+                    {safetyNotice.citations.length > 0 && (
+                      <div className="mt-3 flex max-w-full flex-wrap items-center gap-2 font-normal">
+                        <SourceLinks citations={safetyNotice.citations} />
                       </div>
+                    )}
+                  </div>
+                )}
+                <div role="status" aria-live="polite" aria-atomic="true" className="flex min-w-0 items-start gap-2.5 py-1">
+                  <Sparkles className="h-5 w-5 text-[#f4a8b5] animate-thinking-star shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate whitespace-nowrap text-sm font-medium tracking-wide animate-thinking-shimmer select-none">
+                      {progressLabel}
                     </div>
-                  )}
+                    {progressContext && (
+                      <div className="mt-1 truncate whitespace-nowrap text-xs leading-5 text-zinc-500 dark:text-zinc-400" title={progressContext}>
+                        {progressContext}
+                      </div>
+                    )}
+                    {draftPreview && (
+                      <div className="mt-3 text-zinc-500 dark:text-zinc-400">
+                        <div className="mb-1 text-xs font-medium">Draft · not verified</div>
+                        <div className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-sm leading-6 [overflow-wrap:anywhere]">
+                          {draftPreview}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
+              </>
             )}
           <div ref={messagesEndRef} />
         </div>

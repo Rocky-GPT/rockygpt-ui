@@ -18,6 +18,7 @@ test('chat accepts only the canonical messages request', async ({ request }, tes
     { messages: [] },
     { messages: [{ role: 'system', content: 'not allowed' }] },
     { messages: [{ role: 'user', content: 'Hello', extra: true }] },
+    { messages: [{ role: 'user', content: 'Hello' }], stream: true },
   ];
 
   for (const data of invalidPayloads) {
@@ -54,6 +55,48 @@ test('chat forwards messages with exact shape and order', async ({ request }, te
     answer: 'Answer for: What is my favorite color?',
     model: 'mock-model',
     receivedRequest: { messages },
+  });
+});
+
+test('chat forwards how many earlier messages the page left out', async ({ request }, testInfo) => {
+  // 09-29: a shortened history reached the Brain as if it were the whole
+  // conversation, and it denied an answer it had given.
+  const headers = { 'x-forwarded-for': sourceAddress(testInfo.project.name, 41) };
+  const messages = [{ role: 'user', content: 'What did you say first?' }];
+  const counted = await request.post('/api/chat', { data: { messages, omittedMessages: 12 }, headers });
+  expect(counted.status()).toBe(200);
+  await expect(counted.json()).resolves.toMatchObject({
+    receivedRequest: { messages, omittedMessages: 12 },
+  });
+
+  // Zero is not forwarded, so an older Brain that refuses unknown fields still answers.
+  const whole = await request.post('/api/chat', { data: { messages, omittedMessages: 0 }, headers });
+  expect(whole.status()).toBe(200);
+  expect((await whole.json()).receivedRequest).toEqual({ messages });
+
+  for (const omittedMessages of [-1, 1.5, '3', null, true, [2], 100_001, 2 ** 53]) {
+    const invalid = await request.post('/api/chat', { data: { messages, omittedMessages }, headers });
+    expect(invalid.status()).toBe(400);
+    await expect(invalid.json()).resolves.toMatchObject({
+      error: { code: 'INVALID_REQUEST', retryable: false },
+    });
+  }
+});
+
+test('a Brain without omittedMessages still answers a long chat', async ({ request }, testInfo) => {
+  // The UI can deploy before the Brain; that Brain refuses the field with 422.
+  const headers = { 'x-forwarded-for': sourceAddress(testInfo.project.name, 42) };
+  const messages = [{ role: 'user', content: '__mock_old_brain__' }];
+  const retried = await request.post('/api/chat', { data: { messages, omittedMessages: 100_000 }, headers });
+  expect(retried.status()).toBe(200);
+  expect((await retried.json()).receivedRequest).toEqual({ messages });
+
+  // Any other 422 goes back to the page as the Brain sent it, without a second ask.
+  const invalid = [{ role: 'user', content: '__mock_invalid_conversation__' }];
+  const refused = await request.post('/api/chat', { data: { messages: invalid, omittedMessages: 4 }, headers });
+  expect(refused.status()).toBe(422);
+  await expect(refused.json()).resolves.toMatchObject({
+    detail: [{ type: 'value_error', loc: ['body'] }],
   });
 });
 
