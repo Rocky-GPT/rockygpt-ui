@@ -7,6 +7,12 @@ export interface ChatMessageInput {
 
 export interface ChatRequest {
   messages: ChatMessageInput[];
+  /**
+   * Earlier messages of the student's visible conversation the client left
+   * out of messages. Present only when above zero, since an older Brain
+   * refuses unknown fields.
+   */
+  omittedMessages?: number;
 }
 
 export interface ClientAbuseIdentity {

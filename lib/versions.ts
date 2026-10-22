@@ -17,6 +17,12 @@ export interface Version {
 
 export const versions: Version[] = [
   {
+    version: 'v3.0.0',
+    released: '2026-10-22T17:44:46Z',
+    summary:
+      'RockyGPT is rebuilt as one assistant. For offices (phone, email, hours, room and whether it is open now), emergencies, shuttle times, dining menus and allergens, and courses and programs, it works out the facts from Ramapo\'s published records first and then writes the answer. It also answers how-to and policy questions, events and clubs, and faculty and staff lookups. Long chats keep the whole recent conversation, safety information shows at once, and stopping an answer keeps it whole.',
+  },
+  {
     version: 'v2.3.5',
     released: '2026-09-29T02:47:00Z',
     summary:
