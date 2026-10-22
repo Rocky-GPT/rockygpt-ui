@@ -19,7 +19,7 @@
   "dependencies": {
     "fuse.js": "^7.1.0",
     "lucide-react": "^0.562.0",
-    "next": "^16.3.6",
+    "next": "^16.4.2",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-markdown": "^10.1.0",
@@ -35,10 +35,14 @@
     "@types/react-dom": "^19",
     "axe-core": "^4.11.1",
     "eslint": "^9",
-    "eslint-config-next": "16.3.6",
+    "eslint-config-next": "16.4.2",
     "eslint-config-prettier": "^10.1.8",
     "playwright": "^1.58.0",
     "tailwindcss": "^4",
     "typescript": "^5"
+  },
+  "overrides": {
+    "sharp": "^0.35.5",
+    "source-map-js": "^1.2.2"
   }
 }
