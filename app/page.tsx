@@ -751,10 +751,9 @@ export default function Home() {
   useEffect(() => {
     try {
       const isAutomatedTest = typeof navigator !== 'undefined' && navigator.webdriver;
-      const isDev =
-        process.env.NODE_ENV === 'development' ||
-        (typeof window !== 'undefined' &&
-          (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'));
+      // `next dev` only. A production build behaves the same on localhost as on Vercel, so the
+      // laptop's production-style run shows what students see.
+      const isDev = process.env.NODE_ENV === 'development';
 
       if (isAutomatedTest || isDev) {
         setIsSplashDismissed(true);
