@@ -17,6 +17,12 @@ export interface Version {
 
 export const versions: Version[] = [
   {
+    version: 'v3.0.1',
+    released: '2026-11-02',
+    summary:
+      'Behind the scenes: RockyGPT runs on the same tested library versions every time it is updated, and the site behaves the same on a test computer as it does here. Answers are unchanged.',
+  },
+  {
     version: 'v3.0.0',
     released: '2026-10-22T17:44:46Z',
     summary:
