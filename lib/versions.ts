@@ -17,6 +17,12 @@ export interface Version {
 
 export const versions: Version[] = [
   {
+    version: 'v3.0.2',
+    released: '2026-11-02',
+    summary:
+      'Behind the scenes: the setting that lets this site talk to RockyGPT\'s answer service has a shorter name. Answers are unchanged.',
+  },
+  {
     version: 'v3.0.1',
     released: '2026-11-02',
     summary:
