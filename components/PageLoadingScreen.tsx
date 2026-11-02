@@ -39,10 +39,8 @@ export function PageLoadingScreen({
       return;
     }
 
-    const isDev =
-      process.env.NODE_ENV === 'development' ||
-      (typeof window !== 'undefined' &&
-        (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'));
+    // `next dev` only: a production build on localhost shows the splash exactly as Vercel does.
+    const isDev = process.env.NODE_ENV === 'development';
 
     // In dev build: skip splash screen on refresh for instant development speed
     if (isDev) {
