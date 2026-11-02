@@ -46,7 +46,7 @@ export async function askBrain(
       accept: options?.stream ? 'text/event-stream' : 'application/json',
       'content-type': 'application/json',
     });
-    const environmentToken = process.env.STAGING_SERVICE_TOKEN?.trim();
+    const environmentToken = (process.env.SERVICE_TOKEN || process.env.STAGING_SERVICE_TOKEN)?.trim();
     if (environmentToken) headers.set('x-rockygpt-environment-token', environmentToken);
     if (clientIdentity?.signature) {
       headers.set('x-rockygpt-client-key', clientIdentity.key);
