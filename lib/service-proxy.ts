@@ -25,7 +25,7 @@ async function proxy(request: Request, url: string): Promise<Response> {
   const ifNoneMatch = request.headers.get('if-none-match');
   if (contentType) headers.set('content-type', contentType);
   if (ifNoneMatch) headers.set('if-none-match', ifNoneMatch);
-  const environmentToken = process.env.STAGING_SERVICE_TOKEN?.trim();
+  const environmentToken = (process.env.SERVICE_TOKEN || process.env.STAGING_SERVICE_TOKEN)?.trim();
   if (environmentToken) headers.set('x-rockygpt-environment-token', environmentToken);
   try {
     const upstream = await fetch(url, {
