@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { ArrowLeft, Database, Smartphone, ThumbsUp } from 'lucide-react';
+import { ArrowLeft, Database, Smartphone } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,8 +10,9 @@ export const metadata: Metadata = {
 };
 
 // Each statement here was checked against the code that does it (September
-// 2026): the Brain's turn records, its feedback write and redaction, the UI's
-// rate limiter and browser storage. The earlier notice described a retired
+// 2026; ratings removed November 17, 2026, when the site stopped offering them
+// because the Brain had no route to save them): the Brain's turn records, the
+// UI's rate limiter and browser storage. The earlier notice described a retired
 // logger (30-day transcripts, a session ID, a cookie, transcript exports)
 // that no longer exists.
 const facts = [
@@ -19,11 +20,6 @@ const facts = [
     icon: Database,
     title: 'Your questions and answers',
     body: 'Each question goes to the RockyGPT service and to the AI model that writes the answer. RockyGPT’s record of a turn holds no question or answer text: only an ID, when it happened, how long it took, which campus data it used, what it cost and whether it succeeded. Requests to the AI provider are sent with storage turned off, though the provider’s own account-level policies still apply.',
-  },
-  {
-    icon: ThumbsUp,
-    title: 'When you rate an answer',
-    body: 'Rating an answer saves the question you asked, the answer, your rating and any reason or comment, so a wrong answer can be found and fixed. Before anything is saved, email addresses, personal phone numbers, student ID numbers, Social Security numbers and card numbers are removed from your question and comment. Feedback does not expire; email the address below to have yours removed.',
   },
   {
     icon: Smartphone,
@@ -66,8 +62,8 @@ export default function PrivacyPage() {
             RockyGPT does not keep your questions
           </h2>
           <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            Questions and answers are used to answer you, then dropped. They are saved only when
-            you rate an answer, as described below.
+            Questions and answers are used to answer you, then dropped. RockyGPT does not save
+            them anywhere.
           </p>
         </section>
 
@@ -111,8 +107,8 @@ export default function PrivacyPage() {
             database.
           </p>
           <p className="leading-7 text-muted-foreground">
-            The website runs on Vercel and the answering service on Render. Campus data, turn
-            records and feedback are stored in a Neon Postgres database. Answers are written by an
+            The website runs on Vercel and the answering service on Render. Turn records are
+            stored in a Neon Postgres database. Answers are written by an
             AI model provider, currently OpenAI. The hosting providers keep their own request logs
             under their own policies.
           </p>
@@ -138,7 +134,7 @@ export default function PrivacyPage() {
         </section>
 
         <p className="mt-10 text-xs leading-5 text-muted-foreground">
-          Last updated September 24, 2026.
+          Last updated November 17, 2026.
         </p>
       </div>
     </main>

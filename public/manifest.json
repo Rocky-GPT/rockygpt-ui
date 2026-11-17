@@ -25,31 +25,5 @@
   "categories": [
     "education",
     "productivity"
-  ],
-  "shortcuts": [
-    {
-      "name": "Birch Tree Inn menu",
-      "short_name": "Menu",
-      "description": "Today's menu and dining hours",
-      "url": "/?open=menu",
-      "icons": [
-        {
-          "src": "/icon-192.png",
-          "sizes": "192x192"
-        }
-      ]
-    },
-    {
-      "name": "Campus events",
-      "short_name": "Events",
-      "description": "Upcoming campus events",
-      "url": "/?open=events",
-      "icons": [
-        {
-          "src": "/icon-192.png",
-          "sizes": "192x192"
-        }
-      ]
-    }
   ]
 }
