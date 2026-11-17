@@ -35,14 +35,6 @@ async function mockChatApi(page: Page) {
 
     await fulfillSuccessfulChat(route);
   });
-
-  await page.route('**/api/feedback', (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ success: true }),
-    })
-  );
 }
 
 async function expectNoHighImpactAxeFindings(page: Page, context: string) {
@@ -190,9 +182,6 @@ test('action menu and modal support Escape, focus trapping, and focus restoratio
   await page.keyboard.press('Enter');
   await expect(actionsMenu).toBeVisible();
   await expect(page.getByRole('menuitem', { name: 'Campus Guide & Tour' })).toBeFocused();
-  await page.keyboard.press('ArrowDown');
-  await page.keyboard.press('ArrowDown');
-  await page.keyboard.press('ArrowDown');
   await page.keyboard.press('ArrowDown');
   const printLocationsItem = page.getByRole('menuitem', { name: 'Print Locations' });
   await expect(printLocationsItem).toBeFocused();
@@ -369,46 +358,5 @@ test('network failure explains the connection problem and can be retried', async
 
   await alert.getByRole('button', { name: 'Try again' }).click();
   await expect(page.getByText(CHAT_ANSWER, { exact: true })).toBeVisible();
-  expect(attempts).toBe(2);
-});
-
-test('failed feedback never reports success and remains retryable', async ({ page }) => {
-  await page.unroute('**/api/feedback');
-  let attempts = 0;
-  const feedbackSupportId = '1b49f90a-314f-4dde-9cff-58216c70b713';
-  await page.route('**/api/feedback', async (route) => {
-    attempts += 1;
-    if (attempts > 1) {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ success: true }),
-      });
-      return;
-    }
-
-    await route.fulfill({
-      status: 503,
-      contentType: 'application/json',
-      headers: { 'X-Request-Id': feedbackSupportId },
-      body: JSON.stringify({
-        requestId: feedbackSupportId,
-        error: { code: 'SERVICE_UNAVAILABLE', message: 'Internal database detail' },
-      }),
-    });
-  });
-
-  await submitChatQuestion(page);
-  await expect(page.getByText(CHAT_ANSWER, { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Helpful answer', exact: true }).click();
-
-  const feedbackAlert = page.getByRole('alert').filter({ hasText: /feedback/i });
-  await expect(feedbackAlert).toContainText(/couldn.t save|wasn.t saved/i);
-  await expect(feedbackAlert).toContainText(`Support ID: ${CHAT_REQUEST_ID}`);
-  await expect(feedbackAlert).not.toContainText('Internal database detail');
-  await expect(page.getByText(/Thanks/i)).toBeHidden();
-
-  await feedbackAlert.getByRole('button', { name: /try (feedback )?again/i }).click();
-  await expect(page.getByText(/Thanks/i)).toBeVisible();
   expect(attempts).toBe(2);
 });

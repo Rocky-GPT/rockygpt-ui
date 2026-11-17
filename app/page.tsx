@@ -2,9 +2,8 @@
  * @module app/page
  * Primary chat interface for RockyGPT.
  *
- * Manages message state, PWA install prompts,
- * typed UI actions, and renders the message timeline with source citations, feedback
- * buttons, and quick-access modal triggers.
+ * Manages message state and PWA install prompts, and renders the message
+ * timeline with source citations and the campus actions menu.
  */
 
 'use client';
@@ -12,21 +11,11 @@
 import { readChatStream, ChatStreamError, type ChatSafety } from '@/lib/chat-stream';
 import { memo, useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { Bot, Bus, Calendar, Check, ChevronRight, ChevronUp, Copy, CreditCard, Download, ExternalLink, FileText, GraduationCap, Info, MapPin, Phone, Printer, Send, Shield, Sparkles, Square, SquarePen, ThumbsDown, ThumbsUp, Users, Utensils, X } from 'lucide-react';
-import { MenuModal } from '@/components/MenuModal';
-import { BusModal } from '@/components/BusModal';
+import { Bot, ChevronRight, ChevronUp, Copy, CreditCard, Download, ExternalLink, FileText, Info, Printer, Send, Shield, Sparkles, Square, SquarePen } from 'lucide-react';
 import { PrintModal } from '@/components/PrintModal';
-import { MapModal } from '@/components/MapModal';
 import { WelcomeModal } from '@/components/WelcomeModal';
 import { PageLoadingScreen } from '@/components/PageLoadingScreen';
-import {
-  DirectoryModal,
-  SafetyModal,
-  EventsModal,
-  ClubsModal,
-  CalendarModal,
-  MajorsModal,
-} from '@/components/QuickAccessButtons';
+import { SafetyModal } from '@/components/SafetyModal';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -44,7 +33,6 @@ interface ChatMessage {
   citations?: Citation[];
   requestId?: string;
   question?: string;
-  uiActions?: UiAction[];
   suggestedQuestions?: string[];
   isError?: boolean;
   retryContent?: string;
@@ -69,11 +57,6 @@ interface Citation {
   freshness?: string;
 }
 
-interface UiAction {
-  type: 'VIEW_MENU' | 'VIEW_BUS' | 'VIEW_PRINT' | 'VIEW_EVENTS' | 'VIEW_MAP' | 'VIEW_DIRECTORY';
-  payload?: Record<string, string>;
-}
-
 interface BrainTrace {
   question: Record<string, unknown>;
   memory: Record<string, unknown>;
@@ -89,7 +72,6 @@ interface ChatApiResponse {
   requestId?: string;
   answer?: string;
   citations?: Citation[];
-  uiActions?: UiAction[];
   suggestedQuestions?: string[];
   brainTrace?: BrainTrace;
   error?: {
@@ -238,56 +220,7 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
 }
 
-const ESCAPE_REGEX = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-// Curated list of primary actionable campus venues, dining spots, and key offices (avoids over-chipping generic parent complexes)
-const PRIMARY_ACTIONABLE_LOCATIONS = [
-  // Primary Dining Venues
-  'Starbucks at Common Grounds',
-  'Common Grounds (Starbucks)',
-  'Common Grounds',
-  'Birch Tree Inn',
-  'The Atrium',
-  'Atrium',
-  "Dunkin'",
-  "Dunkin’",
-  'Dunkin',
-  'Roadrunner Express',
-  // Primary Administrative & Student Hub Offices
-  'Center for Student Involvement (CSI)',
-  'Center for Student Involvement',
-  'Center for Student Success',
-  'Office of Residence Life',
-  'Residence Life Office',
-  'Office of Financial Aid',
-  'Financial Aid Office',
-  'Office of the Registrar',
-  'Registrar Office',
-  'Office of Student Accounts',
-  'Bursar Office',
-  'The Lodge (CPA)',
-  'The Lodge',
-  'Public Safety',
-  // Primary Special Facilities
-  'Bradley Center',
-  'Salameno Spiritual Center',
-  'Sharp Sustainability Center',
-  'Berrie Center',
-  'Potter Library',
-];
-
-const COMPILED_LOCATION_NAMES = Array.from(new Set(PRIMARY_ACTIONABLE_LOCATIONS))
-  .map((s) => s.trim())
-  .sort((a, b) => b.length - a.length);
-
-const COMPILED_LOCATIONS_REGEX = new RegExp(
-  `(?:^|(?<=[^\\w]))(${COMPILED_LOCATION_NAMES.map(ESCAPE_REGEX).join('|')})(?=[^\\w]|$)`,
-  'gi'
-);
-
-const ROAD_PREFIXES = new Set(['I', 'US', 'NJ', 'NY', 'PA', 'CR', 'SR', 'RT', 'RTE']);
-
-// Helper to auto-link phone numbers, emails, and rooms to smart interactive pills
+// Helper to auto-link phone numbers, emails and ramapo.edu addresses
 function linkSmartChips(text: string): string {
   if (!text) return '';
 
@@ -316,7 +249,6 @@ function linkSmartChips(text: string): string {
   );
 
   // 5. Auto-link bare ramapo domains (e.g. ramapo.edu, archway.ramapo.edu, ramapo.edu/map).
-  // Runs before rooms and venues so a code inside a path stays part of its URL.
   // Punctuation inside a path belongs to it ("?utm=", "catalog.pdf"); only
   // punctuation ending the sentence is left outside the link.
   protectedText = protectedText.replace(
@@ -337,20 +269,6 @@ function linkSmartChips(text: string): string {
       const prefix = m.startsWith(phone) ? '' : m[0];
       return `${prefix}${protectLink(`[${phone}](tel:${clean})`)}`;
     }
-  );
-
-  // 3. Auto-link Room / Office Numbers (e.g. C-102, D-207, SC-202, ASB-333, E-210, B-214)
-  // Road names share the shape: I-287 or US-202 is not a room to put on the map.
-  protectedText = protectedText.replace(
-    /\b([A-Z]{1,3}-\d{3}[A-Z]?)\b/g,
-    (match, room: string) =>
-      ROAD_PREFIXES.has(room.split('-')[0]) ? match : protectLink(`[${room}](#map:${room})`)
-  );
-
-  // 4. Auto-link all Campus Dining Spots, Offices, Buildings, and Key Landmarks into interactive map chips
-  protectedText = protectedText.replace(
-    COMPILED_LOCATIONS_REGEX,
-    (matched) => protectLink(`[${matched}](#map:${encodeURIComponent(matched)})`)
   );
 
   // 6. Natural phrasing transformation for smart chips & links (replaces robotic colon notation)
@@ -391,7 +309,6 @@ function domProps<T extends object>(props: T): Omit<T, 'node'> {
 
 interface AnswerMarkdownProps {
   content: string;
-  onOpenMap: (locationKey: string | null) => void;
 }
 
 /**
@@ -400,7 +317,6 @@ interface AnswerMarkdownProps {
  */
 const AnswerMarkdown = memo(function AnswerMarkdown({
   content,
-  onOpenMap,
 }: AnswerMarkdownProps) {
   const components = useMemo<Components>(
     () => ({
@@ -464,19 +380,6 @@ const AnswerMarkdown = memo(function AnswerMarkdown({
             </a>
           );
         }
-        if (href?.startsWith('#map:')) {
-          const roomKey = decodeURIComponent(href.replace('#map:', ''));
-          return (
-            <button
-              type="button"
-              onClick={() => onOpenMap(roomKey)}
-              className="inline cursor-pointer border-0 bg-transparent p-0 text-left font-medium text-rose-400 underline decoration-1 decoration-rose-500/40 underline-offset-4 transition-colors hover:text-rose-300 hover:decoration-rose-300 active:opacity-70"
-              title={`View ${roomKey} on Campus Map`}
-            >
-              <span>{children}</span>
-            </button>
-          );
-        }
         const safeHref =
           href?.startsWith('http://') ||
           href?.startsWith('https://') ||
@@ -532,7 +435,7 @@ const AnswerMarkdown = memo(function AnswerMarkdown({
       ),
       td: ({ ...props }) => <td className="border border-border/50 px-4 py-2" {...domProps(props)} />,
     }),
-    [onOpenMap]
+    []
   );
 
   return (
@@ -724,18 +627,8 @@ export default function Home() {
   const [draftPreview, setDraftPreview] = useState('');
   // Verified, code-written emergency guidance the Brain sends before its answer.
   const [safetyNotice, setSafetyNotice] = useState<ChatSafety | null>(null);
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [menuMealContext, setMenuMealContext] = useState('lunch');
-  const [isBusModalOpen, setIsBusModalOpen] = useState(false);
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
-  const [isMapModalOpen, setIsMapModalOpen] = useState(false);
-  const [mapModalInitialKey, setMapModalInitialKey] = useState<string | null>(null);
-  const [isDirectoryModalOpen, setIsDirectoryModalOpen] = useState(false);
   const [isSafetyModalOpen, setIsSafetyModalOpen] = useState(false);
-  const [isEventsModalOpen, setIsEventsModalOpen] = useState(false);
-  const [isClubsModalOpen, setIsClubsModalOpen] = useState(false);
-  const [isCalendarModalOpen, setIsCalendarModalOpen] = useState(false);
-  const [isMajorsModalOpen, setIsMajorsModalOpen] = useState(false);
   const [isWelcomeModalOpen, setIsWelcomeModalOpen] = useState(false);
   const [isActionMenuOpen, setIsActionMenuOpen] = useState(false);
   const [isActionMenuClosing, setIsActionMenuClosing] = useState(false);
@@ -866,10 +759,6 @@ export default function Home() {
     const panel = new URLSearchParams(window.location.search).get('open');
     if (!panel) return;
     const openers: Record<string, () => void> = {
-      menu: () => setIsMenuOpen(true),
-      events: () => setIsEventsModalOpen(true),
-      shuttle: () => setIsBusModalOpen(true),
-      directory: () => setIsDirectoryModalOpen(true),
       safety: () => setIsSafetyModalOpen(true),
     };
     openers[panel]?.();
@@ -1148,7 +1037,6 @@ export default function Home() {
       const data = (await response.json()) as ChatApiResponse;
       const finalAnswer = typeof data.answer === 'string' ? data.answer.trim() : '';
       const responseCitations = cleanCitations(data.citations);
-      const responseActions = Array.isArray(data.uiActions) ? data.uiActions : [];
       const responseSuggestions = cleanSuggestedQuestions(data.suggestedQuestions);
       if (!finalAnswer) {
         throw new ChatRequestFailure(
@@ -1165,7 +1053,6 @@ export default function Home() {
         citations: responseCitations,
         requestId: data.requestId,
         question: userMessage.content,
-        uiActions: responseActions,
         suggestedQuestions: responseSuggestions,
         brainTrace: data.brainTrace,
       };
@@ -1303,35 +1190,6 @@ export default function Home() {
     } catch (error) {
       console.error('Clipboard error:', error);
       triggerHaptic('error');
-    }
-  };
-
-  const openMapModal = useCallback((locationKey: string | null = null) => {
-    setMapModalInitialKey(locationKey);
-    setIsMapModalOpen(true);
-  }, []);
-
-  const runUiAction = (action: UiAction) => {
-    switch (action.type) {
-      case 'VIEW_MENU':
-        if (action.payload?.meal) setMenuMealContext(action.payload.meal);
-        setIsMenuOpen(true);
-        break;
-      case 'VIEW_BUS':
-        setIsBusModalOpen(true);
-        break;
-      case 'VIEW_PRINT':
-        setIsPrintModalOpen(true);
-        break;
-      case 'VIEW_EVENTS':
-        setIsEventsModalOpen(true);
-        break;
-      case 'VIEW_MAP':
-        openMapModal(action.payload?.locationKey || null);
-        break;
-      case 'VIEW_DIRECTORY':
-        setIsDirectoryModalOpen(true);
-        break;
     }
   };
 
@@ -1496,35 +1354,12 @@ export default function Home() {
 
               <div className="flex flex-wrap gap-2">
                 {[
-                  { icon: Utensils, label: 'Birch Menu', action: () => setIsMenuOpen(true) },
-                  { icon: Bus, label: 'Shuttle Schedule', action: () => setIsBusModalOpen(true) },
                   {
                     icon: Printer,
                     label: 'Print Locations',
                     action: () => setIsPrintModalOpen(true),
                   },
-                  { icon: Users, label: 'Clubs & Orgs', action: () => setIsClubsModalOpen(true) },
-                  {
-                    icon: Calendar,
-                    label: 'Campus Events',
-                    action: () => setIsEventsModalOpen(true),
-                  },
-                  {
-                    icon: Calendar,
-                    label: 'Academic Calendar',
-                    action: () => setIsCalendarModalOpen(true),
-                  },
-                  {
-                    icon: GraduationCap,
-                    label: 'Majors',
-                    action: () => setIsMajorsModalOpen(true),
-                  },
-                  { icon: MapPin, label: 'Campus Map', action: () => openMapModal() },
-                  {
-                    icon: Phone,
-                    label: 'Phone Directory',
-                    action: () => setIsDirectoryModalOpen(true),
-                  },
+                  { icon: CreditCard, label: 'ID Card & Balance', action: openBalancePortal },
                 ].map(({ icon: Icon, label, action }, index) => (
                   <button
                     key={label}
@@ -1635,22 +1470,11 @@ export default function Home() {
                             m.isTyping ? 'rocky-answer-typing' : ''
                           }`}
                         >
-                          <AnswerMarkdown content={m.content} onOpenMap={openMapModal} />
+                          <AnswerMarkdown content={m.content} />
                         </div>
                         {!m.isTyping &&
-                          ((m.uiActions?.length || 0) > 0 ||
-                            cleanCitations(m.citations).length > 0) && (
+                          cleanCitations(m.citations).length > 0 && (
                             <div className="flex max-w-full flex-wrap items-center gap-2">
-                              {m.uiActions?.map((action, actionIndex) => (
-                                <button
-                                  key={`${action.type}-${actionIndex}`}
-                                  onClick={() => runUiAction(action)}
-                                  className="group inline-flex min-h-9 items-center gap-1.5 rounded-full border border-rose-500/30 bg-rose-500/10 px-3 py-1 text-xs font-semibold text-rose-300 transition-colors hover:border-rose-400/50 hover:bg-rose-500/20 focus:outline-none focus:ring-2 focus:ring-rose-400/50"
-                                >
-                                  <ChevronRight aria-hidden="true" className="h-3 w-3 shrink-0" />
-                                  {actionLabel(action.type)}
-                                </button>
-                              ))}
                               <SourceLinks citations={m.citations} />
                             </div>
                           )}
@@ -1665,7 +1489,6 @@ export default function Home() {
                             >
                               <Copy className="h-4 w-4" />
                             </button>
-                            <FeedbackButtons requestId={m.requestId} question={m.question} answer={m.content} />
                           </div>
                         )}
                         {/*
@@ -1722,7 +1545,7 @@ export default function Home() {
                     className="w-full rounded-2xl border border-amber-400/40 bg-amber-400/10 p-4 text-sm font-semibold leading-6 text-foreground"
                   >
                     <div className="prose prose-invert prose-sm max-w-none [overflow-wrap:anywhere]">
-                      <AnswerMarkdown content={safetyNotice.answer} onOpenMap={openMapModal} />
+                      <AnswerMarkdown content={safetyNotice.answer} />
                     </div>
                     {safetyNotice.citations.length > 0 && (
                       <div className="mt-3 flex max-w-full flex-wrap items-center gap-2 font-normal">
@@ -1789,27 +1612,6 @@ export default function Home() {
                     color: 'text-[#f4a8b5] bg-[#4d161d]/80 border-[#8E0A26]/40',
                   },
                   {
-                    icon: Utensils,
-                    label: 'Birch Menu',
-                    desc: 'Menus & dining hours',
-                    action: () => setIsMenuOpen(true),
-                    color: 'text-[#f4a8b5] bg-[#4d161d]/80 border-[#8E0A26]/40',
-                  },
-                  {
-                    icon: Bus,
-                    label: 'Shuttle Schedule',
-                    desc: 'Campus & shopping routes',
-                    action: () => setIsBusModalOpen(true),
-                    color: 'text-[#f4a8b5] bg-[#4d161d]/80 border-[#8E0A26]/40',
-                  },
-                  {
-                    icon: MapPin,
-                    label: 'Campus Map',
-                    desc: 'Buildings, rooms & lots',
-                    action: () => openMapModal(),
-                    color: 'text-[#f4a8b5] bg-[#4d161d]/80 border-[#8E0A26]/40',
-                  },
-                  {
                     icon: Printer,
                     label: 'Print Locations',
                     desc: 'Wepa cloud printing kiosks',
@@ -1817,45 +1619,10 @@ export default function Home() {
                     color: 'text-[#f4a8b5] bg-[#4d161d]/80 border-[#8E0A26]/40',
                   },
                   {
-                    icon: Calendar,
-                    label: 'Campus Events',
-                    desc: 'Activities & workshops',
-                    action: () => setIsEventsModalOpen(true),
-                    color: 'text-[#f4a8b5] bg-[#4d161d]/80 border-[#8E0A26]/40',
-                  },
-                  {
-                    icon: Users,
-                    label: 'Clubs & Orgs',
-                    desc: 'Archway clubs & organizations',
-                    action: () => setIsClubsModalOpen(true),
-                    color: 'text-[#f4a8b5] bg-[#4d161d]/80 border-[#8E0A26]/40',
-                  },
-                  {
-                    icon: Calendar,
-                    label: 'Academic Calendar',
-                    desc: 'Key dates, finals & breaks',
-                    action: () => setIsCalendarModalOpen(true),
-                    color: 'text-[#f4a8b5] bg-[#4d161d]/80 border-[#8E0A26]/40',
-                  },
-                  {
-                    icon: GraduationCap,
-                    label: 'Majors & Programs',
-                    desc: 'Degree programs & minors',
-                    action: () => setIsMajorsModalOpen(true),
-                    color: 'text-[#f4a8b5] bg-[#4d161d]/80 border-[#8E0A26]/40',
-                  },
-                  {
                     icon: CreditCard,
                     label: 'ID Card & Balance',
                     desc: 'Swipes & flex points',
                     action: openBalancePortal,
-                    color: 'text-[#f4a8b5] bg-[#4d161d]/80 border-[#8E0A26]/40',
-                  },
-                  {
-                    icon: Phone,
-                    label: 'Phone Directory',
-                    desc: 'Offices & staff contacts',
-                    action: () => setIsDirectoryModalOpen(true),
                     color: 'text-[#f4a8b5] bg-[#4d161d]/80 border-[#8E0A26]/40',
                   },
                   {
@@ -2003,29 +1770,8 @@ export default function Home() {
         </div>
       </div>
 
-      <MenuModal
-        isOpen={isMenuOpen}
-        onClose={() => setIsMenuOpen(false)}
-        defaultMeal={menuMealContext}
-      />
-      <BusModal isOpen={isBusModalOpen} onClose={() => setIsBusModalOpen(false)} />
       <PrintModal isOpen={isPrintModalOpen} onClose={() => setIsPrintModalOpen(false)} />
-      {isMapModalOpen && (
-        <MapModal
-          isOpen={isMapModalOpen}
-          onClose={() => setIsMapModalOpen(false)}
-          initialLocationKey={mapModalInitialKey}
-        />
-      )}
-      <DirectoryModal
-        isOpen={isDirectoryModalOpen}
-        onClose={() => setIsDirectoryModalOpen(false)}
-      />
       <SafetyModal isOpen={isSafetyModalOpen} onClose={() => setIsSafetyModalOpen(false)} />
-      <EventsModal isOpen={isEventsModalOpen} onClose={() => setIsEventsModalOpen(false)} />
-      <ClubsModal isOpen={isClubsModalOpen} onClose={() => setIsClubsModalOpen(false)} />
-      <CalendarModal isOpen={isCalendarModalOpen} onClose={() => setIsCalendarModalOpen(false)} />
-      <MajorsModal isOpen={isMajorsModalOpen} onClose={() => setIsMajorsModalOpen(false)} />
       <WelcomeModal
         isOpen={isWelcomeModalOpen}
         onClose={handleCloseWelcome}
@@ -2190,232 +1936,3 @@ function SourceLinks({ citations }: { citations?: Citation[] }) {
   );
 }
 
-function actionLabel(type: UiAction['type']): string {
-  const labels: Record<UiAction['type'], string> = {
-    VIEW_MENU: 'View menu',
-    VIEW_BUS: 'View shuttle schedule',
-    VIEW_PRINT: 'View print locations',
-    VIEW_EVENTS: 'View events',
-    VIEW_MAP: 'Open campus map',
-    VIEW_DIRECTORY: 'Open directory',
-  };
-  return labels[type];
-}
-
-// The Brain keeps no student text with a turn, so a rating that arrived with
-// only its request ID was stored against "N/A": nobody could tell which answer
-// was wrong. The rated question and answer travel with the rating.
-function FeedbackButtons({
-  requestId,
-  question,
-  answer,
-}: {
-  requestId?: string;
-  question?: string;
-  answer?: string;
-}) {
-  // Try again resends the whole vote. Resending only the rating dropped the
-  // reason and comment the student had already given.
-  const lastVoteRef = useRef<{ rating: 'up' | 'down'; category?: string; comments?: string } | null>(null);
-  const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'reason' | 'comment' | 'error'>('idle');
-  const [selectedRating, setSelectedRating] = useState<'up' | 'down' | null>(null);
-  const [selectedReason, setSelectedReason] = useState<string | null>(null);
-  const [commentText, setCommentText] = useState('');
-
-  const REASON_PLACEHOLDERS: Record<string, string> = {
-    could_be_better: 'How could it be improved?',
-    inaccurate: 'What was incorrect?',
-    incomplete: 'What details were missing?',
-    outdated: 'What info is old or changed?',
-    other: 'Tell us what went wrong...',
-  };
-
-  const handleVote = async (rating: 'up' | 'down', category?: string, comments?: string) => {
-    lastVoteRef.current = { rating, category, comments };
-    setSelectedRating(rating);
-    if (rating === 'up') {
-      setStatus('saving');
-    }
-    try {
-      if (!requestId) throw new Error('Missing request ID for feedback.');
-      const response = await fetch('/api/feedback', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          requestId,
-          rating: rating === 'up' ? 1 : -1,
-          category: category || null,
-          comments: comments || null,
-          question: question || null,
-          answer: answer || null,
-        }),
-      });
-      const payload = (await response.json().catch(() => ({}))) as { success?: boolean };
-      if (!response.ok || payload.success !== true) {
-        throw new Error(`Feedback request failed with status ${response.status}.`);
-      }
-
-      if (rating === 'down' && !category && !comments) {
-        setStatus('reason');
-      } else if (category && !comments) {
-        setSelectedReason(category);
-        setStatus('comment');
-      } else {
-        setStatus('saved');
-      }
-      triggerHaptic('success');
-    } catch (error) {
-      console.error('Feedback error:', error);
-      setStatus('error');
-      triggerHaptic('error');
-    }
-  };
-
-  const handleCommentSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!commentText.trim()) {
-      setStatus('saved');
-      return;
-    }
-    handleVote('down', selectedReason || 'other', commentText.trim());
-  };
-
-  if (!requestId) return null;
-
-  if (status === 'saved') {
-    return (
-      <span role="status" className="inline-flex items-center gap-1.5 text-xs text-emerald-400 font-medium animate-in fade-in duration-200">
-        <Check className="h-3 w-3 text-emerald-400" />
-        {selectedRating === 'up' ? 'Thanks for the feedback! 💙' : "Thanks! We'll make RockyGPT smarter. 💙"}
-      </span>
-    );
-  }
-
-  if (status === 'reason') {
-    const reasons = [
-      { id: 'inaccurate', label: 'Inaccurate' },
-      { id: 'incomplete', label: 'Incomplete' },
-      { id: 'could_be_better', label: 'Could be better' },
-      { id: 'outdated', label: 'Outdated' },
-    ];
-
-    return (
-      <div className="flex flex-wrap items-center gap-1.5 animate-in fade-in duration-200">
-        <span className="text-[11px] text-muted-foreground mr-0.5">Why?</span>
-        {reasons.map((r) => (
-          <button
-            key={r.id}
-            type="button"
-            onClick={() => {
-              handleVote('down', r.id);
-            }}
-            className="inline-flex min-h-9 items-center rounded-lg bg-neutral-900/90 border border-white/10 px-3 text-xs text-neutral-300 hover:bg-neutral-800 hover:text-white hover:border-white/20 transition-all shadow-xs"
-          >
-            {r.label}
-          </button>
-        ))}
-        <button
-          type="button"
-          onClick={() => {
-            setSelectedReason('other');
-            setStatus('comment');
-          }}
-          className="inline-flex min-h-9 items-center rounded-lg bg-neutral-900/90 border border-white/10 px-3 text-xs text-sky-400 hover:bg-sky-500/10 hover:text-sky-300 hover:border-sky-500/30 transition-all shadow-xs"
-        >
-          Other…
-        </button>
-        <button
-          type="button"
-          onClick={() => setStatus('saved')}
-          aria-label="Skip the reason"
-          className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-neutral-500 hover:text-neutral-300"
-          title="Skip"
-        >
-          <X aria-hidden="true" className="h-3.5 w-3.5" />
-        </button>
-      </div>
-    );
-  }
-
-  if (status === 'comment') {
-    const placeholder =
-      (selectedReason && REASON_PLACEHOLDERS[selectedReason]) || 'Tell us what went wrong...';
-    const isTextValid = commentText.trim().length > 0;
-
-    return (
-      <form onSubmit={handleCommentSubmit} className="flex flex-wrap items-center gap-1.5 animate-in fade-in duration-200">
-        <input
-          type="text"
-          value={commentText}
-          onChange={(e) => setCommentText(e.target.value)}
-          placeholder={placeholder}
-          aria-label="What went wrong with this answer"
-          maxLength={1000}
-          className="min-h-10 w-full text-base sm:text-xs bg-neutral-900/90 border border-white/15 rounded-lg px-3 py-1.5 text-white placeholder:text-neutral-500 focus:outline-none focus:border-sky-500 sm:w-64 transition-colors"
-          autoFocus
-        />
-        <button
-          type="submit"
-          disabled={!isTextValid}
-          className="min-h-10 rounded-lg bg-sky-500 text-black hover:bg-sky-400 disabled:opacity-40 disabled:hover:bg-sky-500 disabled:cursor-not-allowed px-4 text-sm font-semibold transition-colors shadow-sm cursor-pointer"
-        >
-          Send
-        </button>
-      </form>
-    );
-  }
-
-  if (status === 'error') {
-    return (
-      <div role="alert" className="flex flex-wrap items-center gap-2 text-xs text-amber-300">
-        <span>Feedback wasn’t saved.</span>
-        <button
-          type="button"
-          data-no-haptic="true"
-          onClick={() => {
-            const vote = lastVoteRef.current;
-            if (vote) handleVote(vote.rating, vote.category, vote.comments);
-          }}
-          className="rounded-lg border border-amber-300/50 px-2 py-1 font-semibold hover:bg-amber-300/10"
-        >
-          Try again
-        </button>
-        <span className="break-all text-muted-foreground">Support ID: {requestId}</span>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex items-center gap-1">
-      <button
-        type="button"
-        aria-label="Helpful answer"
-        aria-pressed={selectedRating === 'up'}
-        data-no-haptic="true"
-        disabled={status === 'saving'}
-        onClick={() => handleVote('up')}
-        className="inline-flex h-11 w-11 items-center justify-center rounded-full text-muted-foreground hover:text-emerald-400 hover:bg-white/5 transition-colors disabled:cursor-wait disabled:opacity-50"
-        title="Helpful answer (👍)"
-      >
-        <ThumbsUp aria-hidden="true" className="h-4 w-4" />
-      </button>
-      <button
-        type="button"
-        aria-label="Unhelpful answer"
-        aria-pressed={selectedRating === 'down'}
-        data-no-haptic="true"
-        disabled={status === 'saving'}
-        onClick={() => handleVote('down')}
-        className="inline-flex h-11 w-11 items-center justify-center rounded-full text-muted-foreground hover:text-rose-400 hover:bg-white/5 transition-colors disabled:cursor-wait disabled:opacity-50"
-        title="Needs improvement (👎)"
-      >
-        <ThumbsDown aria-hidden="true" className="h-4 w-4" />
-      </button>
-      {status === 'saving' && (
-        <span role="status" className="text-xs text-muted-foreground">
-          Saving…
-        </span>
-      )}
-    </div>
-  );
-}

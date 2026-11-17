@@ -201,9 +201,8 @@ export default async function AboutPage({
             Found something wrong?
           </h2>
           <p className="mt-3 leading-7 text-muted-foreground">
-            Every answer has a feedback control beneath it. Rating an answer and leaving a comment
-            is the fastest way to flag a wrong menu, a stale shuttle time or a missing club — those
-            reports are what the next round of fixes gets built from. For anything else, email{' '}
+            To flag a wrong menu, a stale shuttle time or a missing club, or for anything else,
+            email{' '}
             <a className="font-medium text-[#ef9baa] underline" href="mailto:drajakum@ramapo.edu">
               drajakum@ramapo.edu
             </a>

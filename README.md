@@ -18,5 +18,7 @@ The Brain must be running for chat to work. Each JSON chat request contains only
 renders the returned answer and citations. An answer can explain missing or
 stale campus data; transport and validation failures remain explicit errors.
 
-The existing campus panels depend on their corresponding Brain data endpoints.
-Panels whose endpoints are not implemented show an unavailable state.
+The site has no campus data panels: the menu, shuttle, map, directory, events,
+clubs, calendar and majors panels read Brain routes that no longer exist and were
+removed on November 17, 2026. Campus questions go through the chat. Print
+Locations and Campus Safety are static and stay.
