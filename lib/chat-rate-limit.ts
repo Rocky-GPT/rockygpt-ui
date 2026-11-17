@@ -68,13 +68,15 @@ function localAbuseHashKey(): string {
 }
 
 /**
- * The hosting proxy must replace, rather than append to, these headers. That
- * trust boundary is called out in .env.example; the application itself has no
- * socket address available through the Web Request API.
+ * The visitor's address as Vercel reports it. Vercel replaces X-Real-IP and
+ * X-Forwarded-For with the address it saw, so a visitor cannot set them. It
+ * passes a visitor's own CF-Connecting-IP through untouched, and that header used
+ * to be read first: a new made-up value on each request let 200 of 200 questions
+ * from one address through (November 17, 2026). It is no longer read. The Web
+ * Request API gives the application no socket address of its own.
  */
 function sourceNetworkAddress(request: Request): string {
   const direct =
-    request.headers.get('cf-connecting-ip') ??
     request.headers.get('x-real-ip') ??
     request.headers.get('x-forwarded-for')?.split(',')[0];
   const normalized = direct?.trim();

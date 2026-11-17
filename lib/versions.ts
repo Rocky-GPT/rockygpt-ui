@@ -17,6 +17,12 @@ export interface Version {
 
 export const versions: Version[] = [
   {
+    version: 'v3.1.0',
+    released: '2026-11-17',
+    summary:
+      'The menu, shuttle, map, directory, events, clubs, calendar and majors panels are gone: they could no longer load, so ask the chat instead. The thumbs buttons are gone too, because ratings were not being saved, and the privacy page now says so. The chat limit can no longer be dodged with a made-up header.',
+  },
+  {
     version: 'v3.0.2',
     released: '2026-11-02',
     summary:
