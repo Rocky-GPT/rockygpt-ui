@@ -12,6 +12,7 @@ import {
   Users,
   Utensils,
 } from 'lucide-react';
+import { cantRead, cantReadCheckedAt, robotRules, whyLabel } from '@/lib/cant-read';
 import { formatVersionReleased, versions } from '@/lib/versions';
 
 export const dynamic = 'force-dynamic';
@@ -53,6 +54,13 @@ const topics = [
   { icon: Users, label: 'Clubs', desc: '100+ student organizations' },
   { icon: CalendarDays, label: 'Events', desc: 'Activities and key dates' },
 ];
+
+const checkedLabel = new Intl.DateTimeFormat('en-US', {
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+  timeZone: 'UTC',
+}).format(new Date(`${cantReadCheckedAt}T12:00:00Z`));
 
 export default async function AboutPage({
   searchParams,
@@ -164,6 +172,91 @@ export default async function AboutPage({
             RockyGPT is an independent project built by a Ramapo graduate. It is not an official
             Ramapo College service, it is not affiliated with or endorsed by the College, and no
             College office administers it.
+          </p>
+        </section>
+
+        <section aria-labelledby="cant-read" className="mt-12">
+          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#e18b99]">Limits</p>
+          <h2 id="cant-read" className="mt-2 text-2xl font-semibold tracking-tight">
+            What Rocky can&apos;t read
+          </h2>
+          <p className="mt-3 leading-7 text-muted-foreground">
+            Some Ramapo pages ask robots to stay out, and some need your own sign-in. Rocky follows
+            those rules, so it can&apos;t answer from these pages. When a question needs one of them,
+            Rocky tells you where to look.
+          </p>
+          <p className="mt-4 inline-flex rounded-full border border-border px-3 py-1 text-xs text-muted-foreground">
+            Checked&nbsp;
+            <time dateTime={cantReadCheckedAt} className="font-semibold text-foreground">
+              {checkedLabel}
+            </time>
+          </p>
+          <ul className="mt-5 grid gap-3">
+            {cantRead.map((source) => (
+              <li
+                key={source.title}
+                className="grid gap-1.5 rounded-2xl border border-border bg-muted/35 p-4"
+              >
+                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                  <h3 className="text-sm font-semibold">{source.title}</h3>
+                  <span className="font-mono text-xs text-muted-foreground">{source.site}</span>
+                  <span
+                    className={`ml-auto whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                      source.why === 'robots'
+                        ? 'bg-[#862633]/25 text-[#ef9baa]'
+                        : 'border border-border text-muted-foreground'
+                    }`}
+                  >
+                    {whyLabel[source.why]}
+                  </span>
+                </div>
+                <p className="text-sm leading-6 text-muted-foreground">
+                  <span className="font-medium text-foreground">{source.label}</span>{' '}
+                  {source.effect}
+                </p>
+              </li>
+            ))}
+          </ul>
+          <details className="mt-4 border-t border-border pt-3">
+            <summary className="cursor-pointer text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-[#b84a5c] rounded">
+              Show the exact robot rules
+            </summary>
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full min-w-[520px] border-collapse text-left text-sm">
+                <thead>
+                  <tr className="text-muted-foreground">
+                    <th className="border-b border-border px-2 py-2 font-medium">Site</th>
+                    <th className="border-b border-border px-2 py-2 font-medium">
+                      Paths it asks robots to skip
+                    </th>
+                    <th className="border-b border-border px-2 py-2 font-medium">
+                      Wait between pages
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {robotRules.map((rule) => (
+                    <tr key={rule.site} className="align-top">
+                      <td className="whitespace-nowrap border-b border-border px-2 py-2">{rule.site}</td>
+                      <td className="border-b border-border px-2 py-2">
+                        <span className="flex flex-wrap gap-x-2 gap-y-1">
+                          {rule.paths.map((path) => (
+                            <code key={path} className="break-all text-xs">
+                              {path}
+                            </code>
+                          ))}
+                        </span>
+                      </td>
+                      <td className="whitespace-nowrap border-b border-border px-2 py-2">{rule.wait}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </details>
+          <p className="mt-4 text-sm text-muted-foreground">
+            Something here you think Rocky should know? Use the email under &ldquo;Found something
+            wrong?&rdquo; below.
           </p>
         </section>
 

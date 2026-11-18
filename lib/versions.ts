@@ -17,6 +17,12 @@ export interface Version {
 
 export const versions: Version[] = [
   {
+    version: 'v3.2.0',
+    released: '2026-11-18',
+    summary:
+      'A new "What Rocky can\'t read" section on this page lists the Ramapo pages RockyGPT stays out of, either because the site asks robots not to read them or because they need your own sign-in, and what that means for answers. Answers are unchanged.',
+  },
+  {
     version: 'v3.1.1',
     released: '2026-11-18',
     summary:
