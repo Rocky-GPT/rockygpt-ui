@@ -18,6 +18,8 @@ export interface ChatRequest {
 export interface ClientAbuseIdentity {
   key: string;
   signature?: string;
+  /** The network address's key, for the Brain's own count of the whole site's questions. */
+  networkKey?: string;
 }
 
 export const MAX_MESSAGE_LENGTH = 2_000;
@@ -51,6 +53,9 @@ export async function askBrain(
     if (clientIdentity?.signature) {
       headers.set('x-rockygpt-client-key', clientIdentity.key);
       headers.set('x-rockygpt-client-signature', clientIdentity.signature);
+      // This process's count holds only here; the Brain, one process, counts for every copy of
+      // the site (rockygpt-brain api/client_limit.py).
+      if (clientIdentity.networkKey) headers.set('x-rockygpt-network-key', clientIdentity.networkKey);
     }
     return await fetch(`${brainUrl()}/v1/chat`, {
       method: 'POST',

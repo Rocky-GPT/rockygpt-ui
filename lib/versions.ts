@@ -17,6 +17,12 @@ export interface Version {
 
 export const versions: Version[] = [
   {
+    version: 'v3.1.1',
+    released: '2026-11-18',
+    summary:
+      'The chat limit of 12 questions a minute now holds across the whole site, not just on one of its servers. Answers are unchanged.',
+  },
+  {
     version: 'v3.1.0',
     released: '2026-11-17',
     summary:
