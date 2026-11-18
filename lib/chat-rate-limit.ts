@@ -42,6 +42,7 @@ export interface AllowedRateLimit {
   clientIdentity: {
     key: string;
     signature?: string;
+    networkKey?: string;
   };
 }
 
@@ -116,9 +117,10 @@ function spend(key: string, bucket: RateLimitBucket): void {
  * HMAC; neither the raw values nor the digests are written to logs or durable
  * storage, and a bucket lives in memory for one minute.
  *
- * This intentionally is not presented as a distributed quota. Multi-instance
- * deployments should replace the Map with a shared atomic store while keeping
- * the same result contract.
+ * Vercel runs many processes, so this count holds only within one of them
+ * (audit 2026-11-17, item 12). The Brain, a single process, keeps the same two
+ * limits for the whole site from the keys sent with each question
+ * (lib/brain-api.ts); this one only turns a flood away before it reaches it.
  */
 export function checkChatRateLimit(request: Request, now = Date.now()): ChatRateLimit {
   const sharedKey = sharedAbuseHashKey();
@@ -164,6 +166,7 @@ export function checkChatRateLimit(request: Request, now = Date.now()): ChatRate
       ...(sharedKey
         ? { signature: createHmac('sha256', sharedKey).update(clientKey).digest('hex') }
         : {}),
+      ...(networkKey ? { networkKey } : {}),
     },
   };
 }
